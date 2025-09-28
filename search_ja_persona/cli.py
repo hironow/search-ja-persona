@@ -25,11 +25,13 @@ from .services import (
     QdrantService,
     RequestDescriptor,
 )
-from .persona_fields import PERSONA_TEXT_FIELDS
+from .persona_fields import PERSONA_TEXT_FIELDS, DEFAULT_PERSONA_FIELDS
 
 console = Console()
 METADATA_PATH = Path(".cache/index_metadata.json")
 PERSONA_FIELD_SET = set(PERSONA_TEXT_FIELDS)
+# Update this version whenever the embedding or persona field processing logic changes
+INDEX_METADATA_SCHEMA_VERSION = "2025-03-05"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -42,6 +44,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _run_search(args)
     elif args.command == "download-dataset":
         _run_download_dataset(args)
+    elif args.command == "clear-emulators":
+        _run_clear_emulators(args)
     else:  # pragma: no cover - defensive
         parser.error(f"Unknown command: {args.command}")
     return 0
@@ -52,8 +56,15 @@ def _build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     subcommands.required = True
 
-    index_parser = subcommands.add_parser("index", help="Index personas into emulator services")
-    index_parser.add_argument("--dataset", action="append", required=True, help="Parquet file or directory path")
+    index_parser = subcommands.add_parser(
+        "index", help="Index personas into emulator services"
+    )
+    index_parser.add_argument(
+        "--dataset",
+        action="append",
+        required=True,
+        help="Parquet file or directory path",
+    )
     index_parser.add_argument("--batch-size", type=int, default=64)
     index_parser.add_argument("--limit", type=int, default=None)
     index_parser.add_argument(
@@ -63,13 +74,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Embedding preset (hashed, mini-lm, mpnet, e5-small, e5-large, fast-e5-small, fast-e5-large)",
     )
     index_parser.add_argument("--vector-dimension", type=int, default=256)
-    index_parser.add_argument("--ngram-sizes", default="2,3", help="Comma-separated n-gram sizes")
+    index_parser.add_argument(
+        "--ngram-sizes", default="2,3", help="Comma-separated n-gram sizes"
+    )
     index_parser.add_argument(
         "--persona-fields",
-        default="persona",
-        help="Comma-separated persona columns or 'all' (defaults to 'persona')",
+        default="all",
+        help="Comma-separated persona columns or 'all' (defaults to 'all')",
     )
-    index_parser.add_argument("--embedder-model", default="sentence-transformers/all-MiniLM-L6-v2")
+    index_parser.add_argument(
+        "--embedder-model", default="sentence-transformers/all-MiniLM-L6-v2"
+    )
     index_parser.add_argument("--embedder-device", default=None)
     index_parser.add_argument(
         "--embedder-normalize",
@@ -77,7 +92,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Enable normalization for sentence-transformer embeddings",
     )
-    index_parser.add_argument("--fastembed-cache-dir", type=Path, default=Path(".cache"))
+    index_parser.add_argument(
+        "--fastembed-cache-dir", type=Path, default=Path(".cache")
+    )
     index_parser.add_argument("--qdrant-host", default="localhost")
     index_parser.add_argument("--qdrant-port", type=int, default=6333)
     index_parser.add_argument("--qdrant-collection", default="personas")
@@ -90,7 +107,9 @@ def _build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument("--neo4j-user", default="neo4j")
     index_parser.add_argument("--neo4j-password", default="password")
 
-    search_parser = subcommands.add_parser("search", help="Run a free-text persona search")
+    search_parser = subcommands.add_parser(
+        "search", help="Run a free-text persona search"
+    )
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--limit", type=int, default=5)
     search_parser.add_argument(
@@ -106,7 +125,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated persona columns, 'all', or omit to reuse last indexed setting",
     )
-    search_parser.add_argument("--embedder-model", default="sentence-transformers/all-MiniLM-L6-v2")
+    search_parser.add_argument(
+        "--embedder-model", default="sentence-transformers/all-MiniLM-L6-v2"
+    )
     search_parser.add_argument("--embedder-device", default=None)
     search_parser.add_argument(
         "--embedder-normalize",
@@ -114,7 +135,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Enable normalization for sentence-transformer embeddings",
     )
-    search_parser.add_argument("--fastembed-cache-dir", type=Path, default=Path(".cache"))
+    search_parser.add_argument(
+        "--fastembed-cache-dir", type=Path, default=Path(".cache")
+    )
     search_parser.add_argument("--qdrant-host", default="localhost")
     search_parser.add_argument("--qdrant-port", type=int, default=6333)
     search_parser.add_argument("--qdrant-collection", default="personas")
@@ -129,13 +152,32 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--format", choices=("table", "json"), default="table")
     search_parser.add_argument("--verbose", action="store_true")
 
-    download_parser = subcommands.add_parser("download-dataset", help="Download dataset into the Hugging Face cache")
-    download_parser.add_argument("--dataset-name", default=datasets.DEFAULT_DATASET_NAME)
+    download_parser = subcommands.add_parser(
+        "download-dataset", help="Download dataset into the Hugging Face cache"
+    )
+    download_parser.add_argument(
+        "--dataset-name", default=datasets.DEFAULT_DATASET_NAME
+    )
     download_parser.add_argument("--split", default=datasets.DEFAULT_SPLIT)
     download_parser.add_argument("--cache-dir", type=Path, default=Path(".cache"))
     download_parser.add_argument("--revision", default=None)
     download_parser.add_argument("--token", default=None)
     download_parser.add_argument("--force", action="store_true")
+
+    reset_parser = subcommands.add_parser(
+        "clear-emulators",
+        help="Dangerous: drop persona data from local emulator stores",
+    )
+    reset_parser.add_argument("--qdrant-host", default="localhost")
+    reset_parser.add_argument("--qdrant-port", type=int, default=6333)
+    reset_parser.add_argument("--qdrant-collection", default="personas")
+    reset_parser.add_argument("--es-host", default="localhost")
+    reset_parser.add_argument("--es-port", type=int, default=9200)
+    reset_parser.add_argument("--es-index", default="personas")
+    reset_parser.add_argument("--neo4j-host", default="localhost")
+    reset_parser.add_argument("--neo4j-port", type=int, default=7474)
+    reset_parser.add_argument("--neo4j-user", default="neo4j")
+    reset_parser.add_argument("--neo4j-password", default="password")
 
     return parser
 
@@ -185,30 +227,30 @@ def _resolve_persona_fields(
     args: argparse.Namespace,
     *,
     existing_metadata: dict | None = None,
-    default: tuple[str, ...] = ("persona",),
+    default: tuple[str, ...] = DEFAULT_PERSONA_FIELDS,
     allow_metadata_default: bool = False,
 ) -> tuple[tuple[str, ...], str | None]:
     note: str | None = None
     if getattr(args, "persona_fields", None) not in (None, ""):
         fields = _parse_persona_fields(args.persona_fields)
     else:
-        metadata_fields = (
-            (existing_metadata or {}).get("embedder", {}).get("persona_fields")
-            if existing_metadata
-            else None
-        )
+        metadata_fields = None
+        if existing_metadata:
+            embed_info = existing_metadata.get("embedder", {})
+            if embed_info.get("persona_fields"):
+                metadata_fields = tuple(embed_info["persona_fields"])
         if metadata_fields:
-            fields = tuple(metadata_fields)
+            fields = metadata_fields
             if allow_metadata_default:
-                note = (
-                    f"Using persona fields {', '.join(fields)} recorded in {METADATA_PATH}"
-                )
+                note = f"Using persona fields {', '.join(fields)} recorded in {METADATA_PATH}"
         else:
             fields = default
     return fields, note
 
 
-def _write_index_metadata(embedder_info: dict, args: argparse.Namespace, embedder) -> None:
+def _write_index_metadata(
+    embedder_info: dict, args: argparse.Namespace, embedder
+) -> None:
     ngram_sizes = embedder_info.get("ngram_sizes")
     if ngram_sizes is not None and not isinstance(ngram_sizes, list):
         ngram_sizes = list(ngram_sizes)
@@ -230,6 +272,7 @@ def _write_index_metadata(embedder_info: dict, args: argparse.Namespace, embedde
             "collection": args.qdrant_collection,
             "distance": args.qdrant_distance,
         },
+        "schema_version": INDEX_METADATA_SCHEMA_VERSION,
     }
     METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
@@ -250,9 +293,7 @@ def _collect_index_stats(
                 path=f"/collections/{qdrant.collection}",
             )
         )
-        stats["qdrant_points"] = int(
-            response.get("result", {}).get("points_count", 0)
-        )
+        stats["qdrant_points"] = int(response.get("result", {}).get("points_count", 0))
         size = (
             response.get("result", {})
             .get("config", {})
@@ -290,11 +331,7 @@ def _collect_index_stats(
                 },
             )
         )
-        count = (
-            response.get("results", [{}])[0]
-            .get("data", [{}])[0]
-            .get("row", [0])[0]
-        )
+        count = response.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
         stats["neo4j_nodes"] = int(count)
     except Exception:
         stats["neo4j_nodes"] = -1
@@ -305,6 +342,8 @@ def _collect_index_stats(
 def _should_reset(existing: dict | None, new_embedder: dict) -> bool:
     if not existing:
         return False
+    if existing.get("schema_version") != INDEX_METADATA_SCHEMA_VERSION:
+        return True
     current = existing.get("embedder") or {}
     for key in (
         "type",
@@ -327,7 +366,12 @@ def _confirm_reset() -> bool:
     return response.strip().lower() in {"y", "yes"}
 
 
-def _reset_indexes(qdrant: QdrantService, elastic: ElasticsearchService, neo4j: Neo4jService, args: argparse.Namespace) -> None:
+def _reset_indexes(
+    qdrant: QdrantService,
+    elastic: ElasticsearchService,
+    neo4j: Neo4jService,
+    args: argparse.Namespace,
+) -> None:
     console.log("Resetting existing indexes...")
     cleared: list[str] = []
     try:
@@ -390,21 +434,27 @@ def _build_embedder(
             preset_name = embed_info.get("preset")
             embedder_type = embed_info.get("type", preset_name)
             model_name = embed_info.get("model", args.embedder_model)
-            args.embedder_normalize = embed_info.get("normalize", args.embedder_normalize)
+            args.embedder_normalize = embed_info.get(
+                "normalize", args.embedder_normalize
+            )
             if embedder_type == "sentence" and embed_info.get("device") is not None:
                 args.embedder_device = embed_info.get("device")
             if embedder_type == "fast" and embed_info.get("fastembed_cache_dir"):
                 args.fastembed_cache_dir = Path(embed_info["fastembed_cache_dir"])
             if embedder_type == "hashed":
-                args.vector_dimension = embed_info.get("vector_dimension", args.vector_dimension)
+                args.vector_dimension = embed_info.get(
+                    "vector_dimension", args.vector_dimension
+                )
                 if embed_info.get("ngram_sizes"):
-                    args.ngram_sizes = ",".join(str(n) for n in embed_info["ngram_sizes"])
+                    args.ngram_sizes = ",".join(
+                        str(n) for n in embed_info["ngram_sizes"]
+                    )
             metadata_note = f"Using embedder preset '{preset_name or embedder_type}' recorded in {METADATA_PATH}"
         else:
             preset_name = "hashed"
 
     if not preset_name:
-        preset_name = embedder_type if 'embedder_type' in locals() else 'hashed'
+        preset_name = embedder_type if "embedder_type" in locals() else "hashed"
     preset = EMBEDDER_PRESETS.get(preset_name, {})
     embedder_type = preset.get("type", preset_name)
     model_name = preset.get("model", args.embedder_model)
@@ -415,7 +465,9 @@ def _build_embedder(
         "model": model_name,
         "normalize": args.embedder_normalize,
         "device": args.embedder_device,
-        "fastembed_cache_dir": str(args.fastembed_cache_dir) if args.fastembed_cache_dir else None,
+        "fastembed_cache_dir": str(args.fastembed_cache_dir)
+        if args.fastembed_cache_dir
+        else None,
     }
 
     if embedder_type == "sentence":
@@ -427,14 +479,18 @@ def _build_embedder(
     elif embedder_type == "fast":
         embedder = FastEmbedder(
             model_name=model_name,
-            cache_dir=str(args.fastembed_cache_dir) if args.fastembed_cache_dir else None,
+            cache_dir=str(args.fastembed_cache_dir)
+            if args.fastembed_cache_dir
+            else None,
             normalize_embeddings=args.embedder_normalize,
         )
     else:
         ngram_sizes = _parse_ngram_sizes(args.ngram_sizes)
         if not ngram_sizes:
             raise ValueError("At least one n-gram size must be provided")
-        embedder = HashedNgramEmbedder(dimension=args.vector_dimension, ngram_sizes=ngram_sizes)
+        embedder = HashedNgramEmbedder(
+            dimension=args.vector_dimension, ngram_sizes=ngram_sizes
+        )
         info["vector_dimension"] = args.vector_dimension
         info["ngram_sizes"] = list(ngram_sizes)
 
@@ -466,7 +522,9 @@ def _run_index(args: argparse.Namespace) -> None:
         vector_size=embedder.dimension,
         distance=args.qdrant_distance,
     )
-    elastic = ElasticsearchService(host=args.es_host, port=args.es_port, index=args.es_index)
+    elastic = ElasticsearchService(
+        host=args.es_host, port=args.es_port, index=args.es_index
+    )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
@@ -483,7 +541,9 @@ def _run_index(args: argparse.Namespace) -> None:
             }
         }
     if _should_reset(existing_metadata, embedder_info):
-        current = (existing_metadata or {}).get("embedder", {}) if existing_metadata else {}
+        current = (
+            (existing_metadata or {}).get("embedder", {}) if existing_metadata else {}
+        )
         console.print(
             f"[yellow]Existing index uses '{current.get('preset', current.get('type', 'unknown'))}'. "
             f"New preset '{embedder_info.get('preset')}' selected.[/yellow]"
@@ -541,7 +601,9 @@ def _run_search(args: argparse.Namespace) -> None:
         vector_size=embedder.dimension,
         distance=args.qdrant_distance,
     )
-    elastic = ElasticsearchService(host=args.es_host, port=args.es_port, index=args.es_index)
+    elastic = ElasticsearchService(
+        host=args.es_host, port=args.es_port, index=args.es_index
+    )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
@@ -587,10 +649,11 @@ def _run_search(args: argparse.Namespace) -> None:
 
     include_combined = len(persona_fields) > 1
     if include_combined:
-        table.add_column("Combined", overflow="fold", max_width=80)
+        table.add_column("Combined*", overflow="fold", max_width=20)
 
     for field in persona_fields:
-        label = "Persona" if field == "persona" else field.replace("_", " ").title()
+        base = "Persona" if field == "persona" else field.replace("_", " ").title()
+        label = f"{base}*"
         table.add_column(label, overflow="fold", max_width=80)
 
     for entry in results:
@@ -603,7 +666,7 @@ def _run_search(args: argparse.Namespace) -> None:
         ]
         combined_text = (entry.get("text") or "").strip()
         if include_combined:
-            row.append(combined_text)
+            row.append("*" if combined_text else "")
         for field in persona_fields:
             row.append((per_field.get(field) or "").strip())
         table.add_row(*row)
@@ -626,6 +689,33 @@ def _run_download_dataset(args: argparse.Namespace) -> None:
     console.log("Downloading dataset shards...")
     datasets.ensure_dataset_cached(config)
     console.log("Dataset download completed")
+
+
+def _run_clear_emulators(args: argparse.Namespace) -> None:
+    console.print(
+        "[bold red]Warning:[/bold red] This command will remove persona data from local emulators."
+    )
+    if not _confirm_reset():
+        console.print("[yellow]Clear operation aborted.[/yellow]")
+        return
+
+    qdrant = QdrantService(
+        host=args.qdrant_host,
+        port=args.qdrant_port,
+        collection=args.qdrant_collection,
+        vector_size=1,
+    )
+    elastic = ElasticsearchService(
+        host=args.es_host, port=args.es_port, index=args.es_index
+    )
+    neo4j = Neo4jService(
+        host=args.neo4j_host,
+        port=args.neo4j_port,
+        user=args.neo4j_user,
+        password=args.neo4j_password,
+    )
+    _reset_indexes(qdrant, elastic, neo4j, args)
+    console.print("[green]Local emulator stores cleared.[/green]")
 
 
 if __name__ == "__main__":  # pragma: no cover

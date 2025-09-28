@@ -39,7 +39,7 @@ class ApplicationConfig:
     sentence_device: str | None = None
     normalize_embeddings: bool = True
     fastembed_cache_dir: str | None = ".cache"
-    persona_fields: tuple[str, ...] = ("persona",)
+    persona_fields: tuple[str, ...] = PERSONA_TEXT_FIELDS
 
 
 @dataclass

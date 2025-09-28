@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 import aiohttp
+from .persona_fields import PERSONA_TEXT_FIELDS
 
 
 @dataclass
@@ -50,7 +51,11 @@ class SimpleHttpTransport:
         else:
             raise TypeError(f"Unsupported body type: {type(descriptor.body)!r}")
 
-        path = descriptor.path if descriptor.path.startswith("/") else f"/{descriptor.path}"
+        path = (
+            descriptor.path
+            if descriptor.path.startswith("/")
+            else f"/{descriptor.path}"
+        )
         url = f"http://{self.host}:{self.port}{path}"
 
         timeout = aiohttp.ClientTimeout(total=self.timeout)
@@ -141,7 +146,13 @@ class QdrantService:
         )
         return self.transport.request(request)
 
-    def search(self, vector: list[float], *, limit: int = 5, score_threshold: float | None = None) -> list[dict[str, Any]]:
+    def search(
+        self,
+        vector: list[float],
+        *,
+        limit: int = 5,
+        score_threshold: float | None = None,
+    ) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "vector": vector,
             "limit": limit,
@@ -183,9 +194,7 @@ class ElasticsearchService:
                 }
             }
         }
-        persona_props = {
-            field: {"type": "text"} for field in PERSONA_TEXT_FIELDS
-        }
+        persona_props = {field: {"type": "text"} for field in PERSONA_TEXT_FIELDS}
         body["mappings"]["properties"].update(persona_props)
         request = RequestDescriptor(
             method="PUT",
@@ -196,7 +205,11 @@ class ElasticsearchService:
             return self.transport.request(request)
         except RuntimeError as exc:
             message = str(exc).lower()
-            if "already exists" in message or "resource_already_exists" in message or "400" in message:
+            if (
+                "already exists" in message
+                or "resource_already_exists" in message
+                or "400" in message
+            ):
                 return {"status": "exists"}
             raise
 
@@ -288,7 +301,9 @@ class Neo4jService:
         request = RequestDescriptor(
             method="POST",
             path="/db/neo4j/tx/commit",
-            body={"statements": [{"statement": statement, "parameters": {"uuid": uuid}}]},
+            body={
+                "statements": [{"statement": statement, "parameters": {"uuid": uuid}}]
+            },
         )
         response = self.transport.request(request)
         results = response.get("results", [])
@@ -306,4 +321,3 @@ class Neo4jService:
             "prefecture": row[2],
             "relationships": row[3],
         }
-from .persona_fields import PERSONA_TEXT_FIELDS

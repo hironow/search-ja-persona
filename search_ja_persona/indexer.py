@@ -39,7 +39,9 @@ class PersonaIndexer:
 
     def _process_batch(self, batch: list[dict]) -> None:
         qdrant_points = [self._build_qdrant_point(persona) for persona in batch]
-        es_documents = [self._build_elasticsearch_document(persona) for persona in batch]
+        es_documents = [
+            self._build_elasticsearch_document(persona) for persona in batch
+        ]
 
         self.qdrant.upsert_points(qdrant_points)
         self.elasticsearch.bulk_index(es_documents)

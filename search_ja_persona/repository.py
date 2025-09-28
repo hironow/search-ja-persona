@@ -15,6 +15,11 @@ class PersonaRepository:
     parquet_paths: Iterable[Path]
     columns: tuple[str, ...] = (
         "uuid",
+        "professional_persona",
+        "sports_persona",
+        "arts_persona",
+        "travel_persona",
+        "culinary_persona",
         "persona",
         "prefecture",
         "region",

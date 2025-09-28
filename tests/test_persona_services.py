@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 from search_ja_persona.embeddings import HashedNgramEmbedder
 from search_ja_persona.repository import PersonaRepository
+from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
 from search_ja_persona.services import (
     ElasticsearchService,
     Neo4jService,
@@ -74,6 +75,11 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
             {
                 "uuid": "1",
                 "persona": "野本 花代子は、構造的予測力と節約志向を持つシニア介護リーダー",
+                "professional_persona": "プロフェッショナル要約",
+                "sports_persona": "スポーツ要約",
+                "arts_persona": "アート要約",
+                "travel_persona": "トラベル要約",
+                "culinary_persona": "料理要約",
                 "prefecture": "東京都",
                 "region": "関東地方",
             }
@@ -82,19 +88,29 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
 
     fake_transport = FakeTransport()
     fake_transport.enqueue_response({"result": "ok"})  # Qdrant create collection
-    fake_transport.enqueue_response({"acknowledged": True})  # Elasticsearch index create
+    fake_transport.enqueue_response(
+        {"acknowledged": True}
+    )  # Elasticsearch index create
     fake_transport.enqueue_response({"result": "ok"})  # Qdrant upsert
     fake_transport.enqueue_response({"errors": False})  # Elasticsearch bulk
     fake_transport.enqueue_response({"results": []})  # Neo4j cypher
 
-    qdrant = QdrantService(transport=fake_transport, host="localhost", port=6333, collection="personas", vector_size=8)
-    elastic = ElasticsearchService(transport=fake_transport, host="localhost", port=9200, index="personas")
+    qdrant = QdrantService(
+        transport=fake_transport,
+        host="localhost",
+        port=6333,
+        collection="personas",
+        vector_size=8,
+    )
+    elastic = ElasticsearchService(
+        transport=fake_transport, host="localhost", port=9200, index="personas"
+    )
     neo4j = Neo4jService(transport=fake_transport, host="localhost", port=7474)
 
     indexer = PersonaIndexer(
         repository=PersonaRepository([parquet_path]),
         embedder=HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3)),
-        persona_fields=("persona",),
+        persona_fields=PERSONA_TEXT_FIELDS,
         qdrant=qdrant,
         elasticsearch=elastic,
         neo4j=neo4j,
@@ -111,6 +127,14 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
         and "MERGE" in descriptor.body.get("statements", [{}])[0].get("statement", "")
         for descriptor in fake_transport.requests
     )
+
+    upsert_request = next(
+        descriptor
+        for descriptor in fake_transport.requests
+        if descriptor.path.startswith("/collections/personas/points")
+    )
+    payload = upsert_request.body["points"][0]["payload"]["persona_fields"]
+    assert set(payload.keys()) == set(indexer.persona_fields)
 
 
 def test_search_service_merges_results() -> None:
@@ -167,7 +191,9 @@ def test_qdrant_ensure_collection_handles_conflict() -> None:
 
         def request(self, descriptor: RequestDescriptor) -> dict:
             self.requests.append(descriptor)
-            raise RuntimeError("HTTP 409 Conflict: Collection `personas` already exists!")
+            raise RuntimeError(
+                "HTTP 409 Conflict: Collection `personas` already exists!"
+            )
 
     conflict_transport = ConflictTransport()
 
@@ -193,12 +219,14 @@ def test_elasticsearch_ensure_index_handles_exists() -> None:
         def request(self, descriptor: RequestDescriptor) -> dict:
             self.requests.append(descriptor)
             raise RuntimeError(
-                "HTTP 400 Bad Request: {\"error\":{\"root_cause\":[{\"type\":\"resource_already_exists_exception\"}]}}"
+                'HTTP 400 Bad Request: {"error":{"root_cause":[{"type":"resource_already_exists_exception"}]}}'
             )
 
     transport = ConflictTransport()
 
-    service = ElasticsearchService(transport=transport, host="localhost", port=9200, index="personas")
+    service = ElasticsearchService(
+        transport=transport, host="localhost", port=9200, index="personas"
+    )
 
     response = service.ensure_index()
 

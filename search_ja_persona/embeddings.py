@@ -8,11 +8,9 @@ from typing import Any, Iterable, Protocol
 
 class Embedder(Protocol):
     @property
-    def dimension(self) -> int:
-        ...
+    def dimension(self) -> int: ...
 
-    def embed(self, text: str) -> list[float]:
-        ...
+    def embed(self, text: str) -> list[float]: ...
 
 
 @dataclass(frozen=True)
@@ -51,7 +49,9 @@ class HashedNgramEmbedder:
         return value % self.dimension
 
 
-def _load_sentence_transformer(model_name: str, device: str | None = None):  # pragma: no cover - wrapper
+def _load_sentence_transformer(
+    model_name: str, device: str | None = None
+):  # pragma: no cover - wrapper
     try:
         from sentence_transformers import SentenceTransformer
     except ModuleNotFoundError as exc:  # pragma: no cover - import guard
@@ -61,7 +61,9 @@ def _load_sentence_transformer(model_name: str, device: str | None = None):  # p
     return SentenceTransformer(model_name, device=device)
 
 
-def _load_fastembed_model(model_name: str, cache_dir: str | None = None):  # pragma: no cover - wrapper
+def _load_fastembed_model(
+    model_name: str, cache_dir: str | None = None
+):  # pragma: no cover - wrapper
     try:
         from fastembed import TextEmbedding
     except ModuleNotFoundError as exc:  # pragma: no cover - import guard
@@ -81,11 +83,15 @@ class SentenceTransformerEmbedder:
 
     def __post_init__(self) -> None:
         self._model = _load_sentence_transformer(self.model_name, device=self.device)
-        dimension_getter = getattr(self._model, "get_sentence_embedding_dimension", None)
+        dimension_getter = getattr(
+            self._model, "get_sentence_embedding_dimension", None
+        )
         if callable(dimension_getter):
             self._dimension = int(dimension_getter())
         else:  # pragma: no cover - fallback for unexpected models
-            vector = self._model.encode([""], normalize_embeddings=self.normalize_embeddings)[0]
+            vector = self._model.encode(
+                [""], normalize_embeddings=self.normalize_embeddings
+            )[0]
             self._dimension = len(vector)
 
     @property
@@ -133,9 +139,7 @@ class FastEmbedder:
             return [0.0] * self._dimension
 
         try:
-            iterator = self._model.embed(
-                [cleaned], normalize=self.normalize_embeddings
-            )
+            iterator = self._model.embed([cleaned], normalize=self.normalize_embeddings)
         except TypeError:  # pragma: no cover - older fastembed without normalize kw
             iterator = self._model.embed([cleaned])
         vectors = list(iterator)

@@ -21,7 +21,9 @@ def build_manifest(entries: Iterable[str | Path]) -> list[ManifestEntry]:
     for entry in entries:
         path = Path(entry)
         if path.is_dir():
-            children = sorted(child for child in path.glob("*.parquet") if child.is_file())
+            children = sorted(
+                child for child in path.glob("*.parquet") if child.is_file()
+            )
             for child in children:
                 if child not in seen:
                     collected.append(child)
@@ -39,7 +41,9 @@ def build_manifest(entries: Iterable[str | Path]) -> list[ManifestEntry]:
     return manifest
 
 
-def sample_manifest(entries: Sequence[ManifestEntry], limit: int | None) -> list[ManifestEntry]:
+def sample_manifest(
+    entries: Sequence[ManifestEntry], limit: int | None
+) -> list[ManifestEntry]:
     if limit is None or limit >= len(entries):
         return list(entries)
     return list(entries[:limit])

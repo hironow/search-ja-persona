@@ -10,6 +10,8 @@ from rich.console import Console
 
 import search_ja_persona.cli as cli
 from search_ja_persona.repository import PersonaRepository
+from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
+from search_ja_persona.cli import INDEX_METADATA_SCHEMA_VERSION
 
 
 def _write_sample_dataset(path: Path) -> None:
@@ -26,7 +28,9 @@ def _write_sample_dataset(path: Path) -> None:
     )
 
 
-def test_cli_index_invokes_indexer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cli_index_invokes_indexer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     parquet_path = tmp_path / "sample.parquet"
     _write_sample_dataset(parquet_path)
 
@@ -36,7 +40,9 @@ def test_cli_index_invokes_indexer(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         def __init__(self, paths):
             recorded["paths"] = list(paths)
 
-        def iter_personas(self, limit: int | None = None):  # pragma: no cover - not used
+        def iter_personas(
+            self, limit: int | None = None
+        ):  # pragma: no cover - not used
             return iter([])
 
     class FakeIndexer:
@@ -78,10 +84,12 @@ def test_cli_index_invokes_indexer(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     # ensure services are initialised (three entries: qdrant, elastic, neo4j)
     assert len(recorded["services"]) == 3
     assert recorded["indexer_init"]["embedder"].dimension == 8
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
 
 
-def test_cli_search_outputs_results(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cli_search_outputs_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     class FakeSearchService:
         def __init__(self, **_: Any) -> None:
             pass
@@ -99,7 +107,12 @@ def test_cli_search_outputs_results(monkeypatch: pytest.MonkeyPatch, tmp_path: P
                 }
             ]
             if return_stats:
-                return results, {"vector_hits": 1, "keyword_hits": 1, "context_calls": 1, "results": 1}
+                return results, {
+                    "vector_hits": 1,
+                    "keyword_hits": 1,
+                    "context_calls": 1,
+                    "results": 1,
+                }
             return results
 
     monkeypatch.setattr(cli, "PersonaSearchService", FakeSearchService)
@@ -116,7 +129,9 @@ def test_cli_search_outputs_results(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert payload[0]["persona_fields"]["persona"] == "東京で介護に従事するリーダー"
 
 
-def test_cli_search_verbose_outputs_logs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cli_search_verbose_outputs_logs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     class FakeSearchService:
         def __init__(self, **_: Any) -> None:
             pass
@@ -132,7 +147,12 @@ def test_cli_search_verbose_outputs_logs(monkeypatch: pytest.MonkeyPatch, tmp_pa
                     "persona_fields": {"persona": "sample"},
                 }
             ]
-            stats = {"vector_hits": 2, "keyword_hits": 3, "context_calls": 1, "results": 1}
+            stats = {
+                "vector_hits": 2,
+                "keyword_hits": 3,
+                "context_calls": 1,
+                "results": 1,
+            }
             return (results, stats) if return_stats else results
 
     monkeypatch.setattr(cli, "PersonaSearchService", FakeSearchService)
@@ -176,7 +196,10 @@ def test_cli_download_dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     assert config.cache_dir == cache_dir
     assert config.force_download is True
 
-def test_cli_index_sentence_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+
+def test_cli_index_sentence_embedder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     parquet_path = tmp_path / "sample.parquet"
     _write_sample_dataset(parquet_path)
 
@@ -186,7 +209,9 @@ def test_cli_index_sentence_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         def __init__(self, paths):
             recorded["paths"] = list(paths)
 
-        def iter_personas(self, limit: int | None = None):  # pragma: no cover - not used
+        def iter_personas(
+            self, limit: int | None = None
+        ):  # pragma: no cover - not used
             return iter([])
 
     class FakeIndexer:
@@ -208,7 +233,9 @@ def test_cli_index_sentence_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.setattr(cli, "METADATA_PATH", tmp_path / "metadata.json")
 
     class FakeSentenceEmbedder:
-        def __init__(self, model_name: str, device=None, normalize_embeddings: bool = True) -> None:
+        def __init__(
+            self, model_name: str, device=None, normalize_embeddings: bool = True
+        ) -> None:
             recorded["sentence_config"] = {
                 "model_name": model_name,
                 "device": device,
@@ -244,9 +271,12 @@ def test_cli_index_sentence_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         "normalize": False,
     }
     assert recorded["indexer_init"]["embedder"].dimension == 384
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
 
-def test_cli_index_fast_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+
+def test_cli_index_fast_embedder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     parquet_path = tmp_path / "sample.parquet"
     _write_sample_dataset(parquet_path)
 
@@ -256,7 +286,9 @@ def test_cli_index_fast_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         def __init__(self, paths):
             recorded["paths"] = list(paths)
 
-        def iter_personas(self, limit: int | None = None):  # pragma: no cover - not used
+        def iter_personas(
+            self, limit: int | None = None
+        ):  # pragma: no cover - not used
             return iter([])
 
     class FakeIndexer:
@@ -278,7 +310,9 @@ def test_cli_index_fast_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     monkeypatch.setattr(cli, "METADATA_PATH", tmp_path / "metadata.json")
 
     class FakeFastEmbedder:
-        def __init__(self, model_name: str, cache_dir=None, normalize_embeddings: bool = True) -> None:
+        def __init__(
+            self, model_name: str, cache_dir=None, normalize_embeddings: bool = True
+        ) -> None:
             recorded["fast_config"] = {
                 "model_name": model_name,
                 "cache_dir": cache_dir,
@@ -312,9 +346,12 @@ def test_cli_index_fast_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
         "normalize": False,
     }
     assert recorded["indexer_init"]["embedder"].dimension == 512
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
 
-def test_cli_index_prompt_reset_decline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+
+def test_cli_index_prompt_reset_decline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     parquet_path = tmp_path / "sample.parquet"
     _write_sample_dataset(parquet_path)
 
@@ -328,8 +365,9 @@ def test_cli_index_prompt_reset_decline(monkeypatch: pytest.MonkeyPatch, tmp_pat
                     "vector_dimension": 256,
                     "ngram_sizes": [2, 3],
                     "normalize": True,
-                    "persona_fields": ["persona"],
-                }
+                    "persona_fields": list(PERSONA_TEXT_FIELDS),
+                },
+                "schema_version": INDEX_METADATA_SCHEMA_VERSION,
             }
         )
     )
@@ -340,7 +378,9 @@ def test_cli_index_prompt_reset_decline(monkeypatch: pytest.MonkeyPatch, tmp_pat
         def __init__(self, paths):
             recorded["paths"] = list(paths)
 
-        def iter_personas(self, limit: int | None = None):  # pragma: no cover - not used
+        def iter_personas(
+            self, limit: int | None = None
+        ):  # pragma: no cover - not used
             return iter([])
 
     class FakeIndexer:
@@ -365,20 +405,24 @@ def test_cli_index_prompt_reset_decline(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(cli, "console", test_console)
     test_console.input = lambda prompt="": "n"
 
-    cli.main([
-        "index",
-        "--dataset",
-        str(parquet_path),
-        "--embedder",
-        "mini-lm",
-    ])
+    cli.main(
+        [
+            "index",
+            "--dataset",
+            str(parquet_path),
+            "--embedder",
+            "mini-lm",
+        ]
+    )
 
     output = test_console.export_text()
     assert "Indexing aborted" in output
     assert "index_call" not in recorded
 
 
-def test_cli_index_prompt_reset_accept(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_cli_index_prompt_reset_accept(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     parquet_path = tmp_path / "sample.parquet"
     _write_sample_dataset(parquet_path)
 
@@ -392,8 +436,9 @@ def test_cli_index_prompt_reset_accept(monkeypatch: pytest.MonkeyPatch, tmp_path
                     "vector_dimension": 256,
                     "ngram_sizes": [2, 3],
                     "normalize": True,
-                    "persona_fields": ["persona"],
-                }
+                    "persona_fields": list(PERSONA_TEXT_FIELDS),
+                },
+                "schema_version": INDEX_METADATA_SCHEMA_VERSION,
             }
         )
     )
@@ -404,7 +449,9 @@ def test_cli_index_prompt_reset_accept(monkeypatch: pytest.MonkeyPatch, tmp_path
         def __init__(self, paths):
             recorded["paths"] = list(paths)
 
-        def iter_personas(self, limit: int | None = None):  # pragma: no cover - not used
+        def iter_personas(
+            self, limit: int | None = None
+        ):  # pragma: no cover - not used
             return iter([])
 
     class FakeIndexer:
@@ -433,14 +480,45 @@ def test_cli_index_prompt_reset_accept(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setattr(cli, "console", test_console)
     test_console.input = lambda prompt="": "y"
 
-    cli.main([
-        "index",
-        "--dataset",
-        str(parquet_path),
-        "--embedder",
-        "mini-lm",
-    ])
+    cli.main(
+        [
+            "index",
+            "--dataset",
+            str(parquet_path),
+            "--embedder",
+            "mini-lm",
+        ]
+    )
 
     assert recorded.get("reset_called") is True
     assert "index_call" in recorded
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
+
+
+def test_cli_clear_emulators(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorded: dict[str, Any] = {}
+
+    class FakeService:
+        def __init__(self, **kwargs):
+            recorded.setdefault("services", []).append(kwargs)
+
+    def fake_reset(q, e, n, a):
+        recorded["reset_called"] = True
+
+    monkeypatch.setattr(cli, "QdrantService", lambda **kwargs: FakeService(**kwargs))
+    monkeypatch.setattr(
+        cli, "ElasticsearchService", lambda **kwargs: FakeService(**kwargs)
+    )
+    monkeypatch.setattr(cli, "Neo4jService", lambda **kwargs: FakeService(**kwargs))
+    monkeypatch.setattr(cli, "_reset_indexes", fake_reset)
+
+    test_console = Console(record=True)
+    monkeypatch.setattr(cli, "console", test_console)
+    test_console.input = lambda prompt="": "yes"
+
+    cli.main(["clear-emulators"])
+
+    assert recorded.get("reset_called") is True
+    assert len(recorded.get("services", [])) == 3
+    output = test_console.export_text()
+    assert "Local emulator stores cleared." in output

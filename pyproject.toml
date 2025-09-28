@@ -30,3 +30,9 @@ norecursedirs = ["emulator"]
 markers = [
     "integration: tests requiring running emulator services and cached datasets",
 ]
+
+[tool.ruff]
+exclude = [
+    "emulator/",
+]
+

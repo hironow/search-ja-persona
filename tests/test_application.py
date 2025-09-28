@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from search_ja_persona.repository import PersonaRepository
+from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
 
 
 def _write_sample_dataset(path: Path) -> None:
@@ -22,7 +23,9 @@ def _write_sample_dataset(path: Path) -> None:
     )
 
 
-def test_persona_application_orchestrates_services(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_persona_application_orchestrates_services(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
     parquet_path = dataset_dir / "sample.parquet"
@@ -34,7 +37,9 @@ def test_persona_application_orchestrates_services(monkeypatch: pytest.MonkeyPat
         def __init__(self, paths):
             recorded["repository_paths"] = list(paths)
 
-        def iter_personas(self, limit: int | None = None):  # pragma: no cover - not used
+        def iter_personas(
+            self, limit: int | None = None
+        ):  # pragma: no cover - not used
             return iter([])
 
     class FakeIndexer:
@@ -59,7 +64,12 @@ def test_persona_application_orchestrates_services(monkeypatch: pytest.MonkeyPat
         def search(self, query: str, limit: int, *, return_stats: bool = False):
             recorded["search_call"] = {"query": query, "limit": limit}
             results = [{"uuid": "1"}]
-            stats = {"vector_hits": 1, "keyword_hits": 0, "context_calls": 0, "results": 1}
+            stats = {
+                "vector_hits": 1,
+                "keyword_hits": 0,
+                "context_calls": 0,
+                "results": 1,
+            }
             return (results, stats) if return_stats else results
 
     import search_ja_persona.application as app_module
@@ -67,7 +77,9 @@ def test_persona_application_orchestrates_services(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(app_module, "PersonaRepository", FakeRepository)
     monkeypatch.setattr(app_module, "PersonaIndexer", FakeIndexer)
     monkeypatch.setattr(app_module, "QdrantService", FakeServiceFactory("qdrant"))
-    monkeypatch.setattr(app_module, "ElasticsearchService", FakeServiceFactory("elasticsearch"))
+    monkeypatch.setattr(
+        app_module, "ElasticsearchService", FakeServiceFactory("elasticsearch")
+    )
     monkeypatch.setattr(app_module, "Neo4jService", FakeServiceFactory("neo4j"))
     monkeypatch.setattr(app_module, "PersonaSearchService", FakeSearchService)
 
@@ -84,9 +96,12 @@ def test_persona_application_orchestrates_services(monkeypatch: pytest.MonkeyPat
     assert recorded["indexer_init"]["embedder"].dimension == 8
     assert recorded["search_call"] == {"query": "介護", "limit": 1}
     assert results == [{"uuid": "1"}]
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
 
-def test_persona_application_uses_sentence_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+
+def test_persona_application_uses_sentence_embedder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
     parquet_path = dataset_dir / "sample.parquet"
@@ -109,7 +124,9 @@ def test_persona_application_uses_sentence_embedder(monkeypatch: pytest.MonkeyPa
             recorded["index_call"] = {"batch_size": batch_size, "limit": limit}
 
     class FakeSentenceEmbedder:
-        def __init__(self, model_name: str, device=None, normalize_embeddings: bool = True) -> None:
+        def __init__(
+            self, model_name: str, device=None, normalize_embeddings: bool = True
+        ) -> None:
             recorded["embedder_args"] = {
                 "model_name": model_name,
                 "device": device,
@@ -139,9 +156,12 @@ def test_persona_application_uses_sentence_embedder(monkeypatch: pytest.MonkeyPa
         "normalize": True,
     }
     assert recorded["indexer_init"]["embedder"].dimension == 768
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
 
-def test_persona_application_uses_fast_embedder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+
+def test_persona_application_uses_fast_embedder(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     dataset_dir = tmp_path / "dataset"
     dataset_dir.mkdir()
     parquet_path = dataset_dir / "sample.parquet"
@@ -164,7 +184,9 @@ def test_persona_application_uses_fast_embedder(monkeypatch: pytest.MonkeyPatch,
             recorded["index_call"] = {"batch_size": batch_size, "limit": limit}
 
     class FakeFastEmbedder:
-        def __init__(self, model_name: str, cache_dir=None, normalize_embeddings: bool = True) -> None:
+        def __init__(
+            self, model_name: str, cache_dir=None, normalize_embeddings: bool = True
+        ) -> None:
             recorded["embedder_args"] = {
                 "model_name": model_name,
                 "cache_dir": cache_dir,
@@ -183,7 +205,9 @@ def test_persona_application_uses_fast_embedder(monkeypatch: pytest.MonkeyPatch,
 
     from search_ja_persona.application import ApplicationConfig, PersonaApplication
 
-    config = ApplicationConfig(embedder="fast-e5-small", fastembed_cache_dir="/tmp/cache")
+    config = ApplicationConfig(
+        embedder="fast-e5-small", fastembed_cache_dir="/tmp/cache"
+    )
     app = PersonaApplication.build(config)
 
     app.index([dataset_dir], batch_size=2, limit=1)
@@ -194,4 +218,4 @@ def test_persona_application_uses_fast_embedder(monkeypatch: pytest.MonkeyPatch,
         "normalize": True,
     }
     assert recorded["indexer_init"]["embedder"].dimension == 256
-    assert recorded["indexer_init"]["persona_fields"] == ("persona",)
+    assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS

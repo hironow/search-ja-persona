@@ -12,7 +12,7 @@ format:
     uv run ruff format .
 
 lint:
-    uv run ruff check .
+    uv run ruff check --fix .
 
 test:
     UV_CACHE_DIR=.uv-cache uv run pytest
@@ -20,11 +20,17 @@ test:
 integration:
     UV_CACHE_DIR=.uv-cache uv run pytest tests/test_integration_emulators.py -m integration
 
+qa-clear:
+    uv run python -m search_ja_persona.cli clear-emulators
+
+qa-sample limit="1000":
+    uv run python -m scripts.generate_qa_sample --limit {{limit}}
+
 qa-index embedder="mini-lm" persona_fields="all":
     uv run python -m search_ja_persona.cli index \
         --dataset qa_samples/qa_sample.parquet \
         --batch-size 64 \
-        --limit 100 \
+        --limit 1000 \
         --embedder {{embedder}} \
         --persona-fields {{persona_fields}}
 

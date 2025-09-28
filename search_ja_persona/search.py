@@ -25,7 +25,11 @@ class PersonaSearchService:
     ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
         if limit <= 0:
             results: list[dict[str, Any]] = []
-            return (results, {"vector_hits": 0, "keyword_hits": 0, "context_calls": 0}) if return_stats else results
+            return (
+                (results, {"vector_hits": 0, "keyword_hits": 0, "context_calls": 0})
+                if return_stats
+                else results
+            )
 
         query_vector = self.embedder.embed(query)
         vector_hits = self.qdrant.search(query_vector, limit=limit)
@@ -35,9 +39,7 @@ class PersonaSearchService:
         keyword_map: dict[str, dict[str, Any]] = {}
         for hit in keyword_hits:
             source = hit.get("_source", {})
-            per_field = {
-                field: source.get(field, "") for field in self.persona_fields
-            }
+            per_field = {field: source.get(field, "") for field in self.persona_fields}
             keyword_map[str(hit.get("_id"))] = {
                 "uuid": source.get("uuid") or hit.get("_id"),
                 "text": source.get("text"),
@@ -70,7 +72,9 @@ class PersonaSearchService:
                     "prefecture": doc.get("prefecture"),
                     "region": doc.get("region"),
                     "context": context,
-                    "persona_fields": doc.get("persona_fields", payload.get("persona_fields", {})),
+                    "persona_fields": doc.get(
+                        "persona_fields", payload.get("persona_fields", {})
+                    ),
                 }
             )
             seen.add(uuid)

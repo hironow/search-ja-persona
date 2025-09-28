@@ -16,12 +16,22 @@ from datasets import DownloadConfig, config as datasets_config, load_dataset  # 
 
 pytestmark = pytest.mark.integration
 
-_DATASET_COLUMNS = ("uuid", "persona", "prefecture", "region", "occupation", "age", "sex")
+_DATASET_COLUMNS = (
+    "uuid",
+    "persona",
+    "prefecture",
+    "region",
+    "occupation",
+    "age",
+    "sex",
+)
 _DEFAULT_CACHE_DIR = Path(".hf-cache")
 
 
 def _ensure_emulators_available(config: ApplicationConfig) -> None:
-    qdrant_transport = SimpleHttpTransport(config.qdrant_host, config.qdrant_port, timeout=2.0)
+    qdrant_transport = SimpleHttpTransport(
+        config.qdrant_host, config.qdrant_port, timeout=2.0
+    )
     try:
         qdrant_transport.request(RequestDescriptor("GET", "/collections"))
     except (OSError, RuntimeError) as exc:
@@ -116,7 +126,9 @@ def _load_sample_rows(limit: int = 10) -> list[dict]:
     return rows
 
 
-def _retry_search(app: PersonaApplication, query: str, *, attempts: int = 5, delay: float = 0.5) -> list[dict]:
+def _retry_search(
+    app: PersonaApplication, query: str, *, attempts: int = 5, delay: float = 0.5
+) -> list[dict]:
     for _ in range(attempts):
         results = app.search(query, limit=1)
         if results:

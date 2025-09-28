@@ -1,122 +1,143 @@
 # search-ja-persona
 
-## Overview
+Self-contained tooling for indexing and searching the Nemotron Personas Japan dataset with local emulators (Qdrant, Elasticsearch, Neo4j). The CLI coordinates data ingestion, vector and keyword search, and persona graph context so developers can explore personas without reading the source first.
 
-`search-ja-persona` orchestrates the Nemotron-Personas-Japan dataset across Qdrant (vector), Elasticsearch (keyword), and Neo4j (graph) emulator services. It provides:
+## Pipeline at a Glance
 
-- Streaming repository + hashed n-gram embedder for deterministic vectors.
-- Service clients and an indexer that batch-sync personas to each emulator.
-- A persona search service (and CLI) that fuses vector/keyword hits and enriches results with graph context.
-- TDD/Tidy-First development workflow (see `plan.md` and `AGENTS.md`).
+Data flow
 
-### Dataset Highlights
+1. Parquet shards -> `PersonaRepository` (stream records with optional limits)
+2. `PersonaIndexer` -> Qdrant (vector), Elasticsearch (keyword), Neo4j (context graph)
+3. Query text -> embedder -> `PersonaSearchService` -> merge vector hits, keyword fallbacks, graph context
 
-- Source: `nvidia/Nemotron-Personas-Japan` (v1.0, released 2025-09-23).
-- Scale: 1,000,000 personas (~1.73 GB parquet shards).
-- Rich schema: narrative personas plus 16 demographic/context attributes spanning all 47 prefectures and >1,500 occupations.
-- License: CC BY 4.0 synthetic data aimed at bias reduction and sovereign-AI scenarios.
+Key components
 
-## Requirements
+- `PersonaRepository` streams records from one or more parquet files (batch aware, limit ready).
+- `PersonaIndexer` normalizes persona text fields, builds embeddings, and writes to each emulator service.
+- `PersonaSearchService` embeds the query, runs Qdrant vector search, enriches results with Elasticsearch keyword hits and Neo4j persona context, then returns a combined list.
 
-- Python ≥ 3.12 (managed via `uv`).
-- Docker Desktop (for emulator stack).
-- Sufficient storage for the Hugging Face dataset cache (~2 GB).
+## Score Semantics
 
-Install dependencies in a `uv` environment:
+Each search result exposes a `score` field:
 
-```
-uv sync
-```
+- For candidates returned by Qdrant, `score` is the cosine similarity reported by Qdrant (higher is better).
+- When Elasticsearch supplies a fallback persona that was not in the vector shortlist, the Elasticsearch `_score` is mapped into the same `score` field.
+- `--verbose` mode prints hit counts: `vector_hits`, `keyword_hits`, `context_calls`, and `results` so you can diagnose which backend produced the answer set.
 
-## Quick Usage
+## Repository Map
 
-```python
-from pathlib import Path
-from search_ja_persona.application import ApplicationConfig, PersonaApplication
+| Path | Purpose |
+|------|---------|
+| `search_ja_persona/cli.py` | Rich CLI entry point for indexing, searching, downloading, and clearing emulators |
+| `search_ja_persona/indexer.py` | Batch ingestion into Qdrant, Elasticsearch, and Neo4j |
+| `search_ja_persona/search.py` | Query orchestration and hit fusion logic |
+| `search_ja_persona/embeddings.py` | Embedding backends (hashed n-gram, SentenceTransformers, fastembed) |
+| `search_ja_persona/services.py` | Thin HTTP transports for emulator APIs |
+| `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
+| `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
 
-config = ApplicationConfig(vector_dimension=256, ngram_sizes=(2, 3))
-app = PersonaApplication.build(config)
+## Prerequisites
 
-# Index personas from parquet shards (emulators must be running)
-dataset_dir = Path("datasets/Nemotron-Personas-Japan")
-app.index([dataset_dir], batch_size=128, limit=10_000)
+- Python 3.12+
+- [`uv`](https://github.com/astral-sh/uv) for dependency management (recommended)
+- Local emulators running: change into `emulator/` and use `./start-emulators.sh` (or `docker compose up -d`).
 
-# Run a fused search and inspect graph context
-results = app.search("高齢者介護の経験豊富なマネージャー", limit=3)
-for entry in results:
-    print(entry["uuid"], entry["prefecture"], entry["context"].get("relationships"))
-```
+## Getting the Dataset
 
-### Dataset Download Helpers
+1. Hugging Face cache: run the CLI downloader (safe to rerun).
+   ```bash
+   uv run python -m search_ja_persona.cli download-dataset \
+       --dataset-name nvidia/Nemotron-Personas-Japan \
+       --split train \
+       --cache-dir .cache
+   ```
+   The cached parquet shards sit under `~/.cache/huggingface`. You can also copy them into `datasets/Nemotron-Personas-Japan/data/` as this repo already demonstrates.
 
-Cache the full dataset locally (defaults to `.cache/` unless overridden with `--cache-dir`):
+2. Optional: regenerate the bundled 1k sample parquet.
+   ```bash
+   uv run python -m scripts.generate_qa_sample --limit 1000
+   ```
 
-```
-uv run python -m search_ja_persona.cli download-dataset --cache-dir .hf-cache
-```
+## Generating the QA Sample
 
-Sample a single persona from the cache:
+The repository ships with `qa_samples/qa_sample.parquet`. Regenerate it whenever you
+need a fresh slice or after updating the source dataset:
 
-```
-uv run python load_dataset_example.py
-```
+1. Ensure the Hugging Face cache already contains `nvidia/Nemotron-Personas-Japan`.
+   - Run the `download-dataset` command above, or allow the script to fall back to
+     an existing `.arrow` shard in the cache directory.
+2. Execute the helper script (idempotent; overwrites the existing parquet):
+   ```bash
+   uv run python -m scripts.generate_qa_sample --limit 1000
+   ```
+   The script writes up to 1,000 rows into `qa_samples/qa_sample.parquet` using the persona
+   text fields defined in `search_ja_persona/persona_fields.py`.
 
-## Command Line Interface
+Override the default count with `--limit` when needed (for example, `--limit 2000`).
 
-```
-uv run python -m search_ja_persona.cli --help
-```
+## Indexing Personas
 
-Key subcommands:
+### Full corpus (about 1,000,000 rows)
 
-- `download-dataset`: Wraps `datasets.load_dataset` (`--cache-dir`, `--force`, `--revision`, `--token`).
-- `index`: Streams parquet shards into Qdrant/Elasticsearch/Neo4j. Choose `--embedder hashed` (default) or semantic presets such as `mini-lm`, `mpnet`, `e5-small`, `e5-large`, `fast-e5-small`, `fast-e5-large`. Advanced parameters like `--embedder-model`/`--embedder-device`, `--fastembed-cache-dir` (default `.cache/`), and `--persona-fields` (comma-separated list or `all`) let you shape the embedding input.
-- `search`: Embeds a free-text query and prints Rich tables (`--format json` for raw output). Supports the same `--embedder` presets and reuses the latest indexed persona fields automatically when `--persona-fields` is omitted.
+Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` using a SentenceTransformer preset. Adjust `--batch-size` to match available memory; leaving `--limit` unset consumes all rows.
 
-Example indexing run (after caching data and starting emulators):
-
-```
+```bash
 uv run python -m search_ja_persona.cli index \
-  --dataset datasets/Nemotron-Personas-Japan \
-  --batch-size 256 --limit 5000
+    --dataset datasets/Nemotron-Personas-Japan/data \
+    --batch-size 512 \
+    --embedder mini-lm \
+    --persona-fields all \
+    --qdrant-host localhost --qdrant-port 6333 \
+    --es-host localhost --es-port 9200 \
+    --neo4j-host localhost --neo4j-port 7474
 ```
 
-### End-to-End Search Flow
+### QA sample (1,000 rows)
 
-When you run the search command, the system performs three steps:
+Limit ingestion to the bundled sample parquet. The `--limit` guard ensures only the first 1,000 personas are processed even if you regenerate the sample with more rows.
 
-1. **Vector similarity (Qdrant)** – The query text is embedded via the hashed n-gram vectorizer and compared against each persona narrative to gather semantic candidates.
-2. **Keyword refinement (Elasticsearch)** – The same query runs through a `multi_match` across `persona`, `prefecture`, and `region`, boosting candidates that also match lexically or geographically.
-3. **Graph context (Neo4j)** – For each resulting persona `uuid`, Neo4j is queried so the response can include relationship metadata (e.g., linked regions or related entities).
+```bash
+uv run python -m search_ja_persona.cli index \
+    --dataset qa_samples/qa_sample.parquet \
+    --batch-size 128 \
+    --limit 1000 \
+    --embedder mini-lm \
+    --persona-fields all
+```
 
-The CLI merges these stages into a single response: Qdrant scores, Elasticsearch payload, and optional Neo4j relationships per persona. By default results render as a Rich table showing every persona narrative column (professional/sports/arts/travel/culinary/summary); append `--format json` to print the raw JSON payload instead. The most recent indexing run records its embedder preset and persona-field selection in `.cache/index_metadata.json`, so subsequent `search` invocations automatically reuse those choices when flags are omitted.
+> Tip: `just qa-index embedder="mini-lm" persona_fields="all"` wraps the same command.
 
-## Integration Testing
+### Metadata Tracking
 
-1. Start the emulator stack:
+After every indexing run, `.cache/index_metadata.json` records the embedder preset, dimensions, persona fields, and collection/index names. Subsequent `search` runs reuse this metadata when you omit `--embedder` or `--persona-fields`.
 
-   ```
-   (cd emulator && ./start-emulators.sh)
-   ```
+## Running Searches
 
-2. Provide persona data. The integration test automatically reuses `.hf-cache/` if present; you can override via:
+Once indexing completes, issue free-text queries with combined vector plus keyword retrieval.
 
-   ```
-   export PERSONA_DATASET_CACHE_DIR=$(pwd)/.hf-cache
-   export PERSONA_DATASET_SAMPLE_PATH=/path/to/sample.parquet
-   export PERSONA_DATASET_DIR=/path/to/parquet_dir
-   ```
+```bash
+uv run python -m search_ja_persona.cli search \
+    --query "care manager with elder care experience" \
+    --limit 5 \
+    --format table \
+    --verbose
+```
 
-3. Run the integration test (also part of the default suite when prerequisites are satisfied):
+- `--format table` renders a Rich table; `--format json` prints structured JSON.
+- `--verbose` surfaces per-backend hit statistics alongside the unified result list.
+- To reuse the last indexed embedder or persona field set, omit `--embedder` and `--persona-fields` (the CLI will read `.cache/index_metadata.json`).
 
-   ```
-   uv run pytest tests/test_integration_emulators.py -m integration
-   ```
+## Maintenance Utilities
 
-Running `UV_CACHE_DIR=.uv-cache uv run pytest` executes the entire test suite (unit + integration). The integration case skips only when emulators or dataset shards are unavailable.
+- `uv run python -m search_ja_persona.cli clear-emulators` drops the Qdrant collection, Elasticsearch index, Neo4j persona nodes, and deletes cached metadata (asks for confirmation).
+- `just test` runs the full pytest suite (emulator integration tests are skipped unless the emulators are up and the dataset cache is populated).
 
-## Development Notes
+## Troubleshooting Checklist
 
-- `plan.md` documents the roadmap (manifest generation, resumable indexing, etc.).
-- `tests/` follows TDD structure; emulator submodule tests remain excluded via `norecursedirs`.
-- `AGENTS.md` captures Tidy First/TDD guidelines used throughout the repository.
+- Ensure `./start-emulators.sh` completed and ports 6333, 9200, 7474 are reachable.
+- Hugging Face downloads require authentication when the dataset is gated; pass `--token` to `download-dataset` if needed.
+- If you switch embedder presets or persona field subsets, the CLI prompts to reset existing indexes so vector dimensions stay aligned across services.
+
+---
+
+With the pipeline indexed, you can explore prompts against the million-persona corpus or the 1k QA slice by swapping the dataset path and `--limit` flag in the commands above.

@@ -24,7 +24,9 @@ class DatasetCacheConfig:
 def ensure_dataset_cached(config: DatasetCacheConfig) -> None:
     """Download the full dataset into the local Hugging Face cache."""
 
-    download_mode = "force_redownload" if config.force_download else DEFAULT_DOWNLOAD_MODE
+    download_mode = (
+        "force_redownload" if config.force_download else DEFAULT_DOWNLOAD_MODE
+    )
 
     kwargs: dict[str, Any] = {
         "split": config.split,

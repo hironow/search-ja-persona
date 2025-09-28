@@ -21,7 +21,9 @@ def test_hashed_ngram_embedder_produces_unit_vector() -> None:
     assert pytest.approx(magnitude, rel=1e-6) == 1.0
 
 
-def test_sentence_transformer_embedder_uses_underlying_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sentence_transformer_embedder_uses_underlying_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, Any] = {}
 
     class FakeModel:
@@ -38,7 +40,9 @@ def test_sentence_transformer_embedder_uses_underlying_model(monkeypatch: pytest
         lambda model_name, device=None: FakeModel(),
     )
 
-    embedder = SentenceTransformerEmbedder(model_name="fake-model", normalize_embeddings=False)
+    embedder = SentenceTransformerEmbedder(
+        model_name="fake-model", normalize_embeddings=False
+    )
     vector = embedder.embed("こんにちは")
 
     assert vector == [1.0, 2.0, 3.0, 4.0]
@@ -63,7 +67,9 @@ def test_fast_embedder_invokes_fastembed(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda model_name, cache_dir=None: FakeFastModel(),
     )
 
-    embedder = FastEmbedder(model_name="fast-model", cache_dir="/tmp/cache", normalize_embeddings=False)
+    embedder = FastEmbedder(
+        model_name="fast-model", cache_dir="/tmp/cache", normalize_embeddings=False
+    )
     vector = embedder.embed("こんにちは")
 
     assert vector == [1.0, 0.0, 0.0]
