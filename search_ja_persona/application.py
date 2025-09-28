@@ -4,11 +4,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from .embeddings import (
+    EMBEDDER_PRESETS,
+    FastEmbedder,
+    HashedNgramEmbedder,
+    SentenceTransformerEmbedder,
+)
 from .indexer import PersonaIndexer
 from .repository import PersonaRepository
 from .search import PersonaSearchService
 from .services import ElasticsearchService, Neo4jService, QdrantService
-from .vectorizer import HashedNgramVectorizer
+from .persona_fields import PERSONA_TEXT_FIELDS
 
 
 @dataclass(frozen=True)
@@ -26,8 +32,14 @@ class ApplicationConfig:
     neo4j_port: int = 7474
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"
+    embedder: str = "hashed"
     vector_dimension: int = 256
     ngram_sizes: tuple[int, ...] = field(default_factory=lambda: (2, 3))
+    sentence_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    sentence_device: str | None = None
+    normalize_embeddings: bool = True
+    fastembed_cache_dir: str | None = ".cache"
+    persona_fields: tuple[str, ...] = ("persona",)
 
 
 @dataclass
@@ -35,7 +47,7 @@ class PersonaApplication:
     """High-level orchestration helpers for indexing and search flows."""
 
     config: ApplicationConfig
-    vectorizer: HashedNgramVectorizer
+    embedder: HashedNgramEmbedder | SentenceTransformerEmbedder | FastEmbedder
     qdrant: QdrantService
     elasticsearch: ElasticsearchService
     neo4j: Neo4jService
@@ -43,15 +55,38 @@ class PersonaApplication:
 
     @classmethod
     def build(cls, config: ApplicationConfig) -> PersonaApplication:
-        vectorizer = HashedNgramVectorizer(
-            dimension=config.vector_dimension,
-            ngram_sizes=config.ngram_sizes,
-        )
+        embedder: HashedNgramEmbedder | SentenceTransformerEmbedder | FastEmbedder
+        preset = EMBEDDER_PRESETS.get(config.embedder)
+        if preset:
+            embedder_type = preset["type"]
+            model_name = preset.get("model", config.sentence_model)
+        else:
+            embedder_type = config.embedder
+            model_name = config.sentence_model
+
+        if embedder_type == "sentence":
+            embedder = SentenceTransformerEmbedder(
+                model_name=model_name,
+                device=config.sentence_device,
+                normalize_embeddings=config.normalize_embeddings,
+            )
+        elif embedder_type == "fast":
+            embedder = FastEmbedder(
+                model_name=model_name,
+                cache_dir=config.fastembed_cache_dir,
+                normalize_embeddings=config.normalize_embeddings,
+            )
+        else:
+            embedder = HashedNgramEmbedder(
+                dimension=config.vector_dimension,
+                ngram_sizes=config.ngram_sizes,
+            )
+
         qdrant = QdrantService(
             host=config.qdrant_host,
             port=config.qdrant_port,
             collection=config.qdrant_collection,
-            vector_size=vectorizer.dimension,
+            vector_size=embedder.dimension,
             distance=config.qdrant_distance,
         )
         elasticsearch = ElasticsearchService(
@@ -65,15 +100,17 @@ class PersonaApplication:
             user=config.neo4j_user,
             password=config.neo4j_password,
         )
+        persona_fields = config.persona_fields or PERSONA_TEXT_FIELDS
         search_service = PersonaSearchService(
-            vectorizer=vectorizer,
+            embedder=embedder,
             qdrant=qdrant,
             elasticsearch=elasticsearch,
             neo4j=neo4j,
+            persona_fields=persona_fields,
         )
         return cls(
             config=config,
-            vectorizer=vectorizer,
+            embedder=embedder,
             qdrant=qdrant,
             elasticsearch=elasticsearch,
             neo4j=neo4j,
@@ -91,7 +128,8 @@ class PersonaApplication:
         repository = PersonaRepository(paths)
         indexer = PersonaIndexer(
             repository=repository,
-            vectorizer=self.vectorizer,
+            embedder=self.embedder,
+            persona_fields=self.config.persona_fields or PERSONA_TEXT_FIELDS,
             qdrant=self.qdrant,
             elasticsearch=self.elasticsearch,
             neo4j=self.neo4j,

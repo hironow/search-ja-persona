@@ -1,5 +1,6 @@
 # cache
-.hf-cache/
+.cache/
+.*-cache/
 
 # qa
 qa_samples/

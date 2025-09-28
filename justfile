@@ -1,4 +1,7 @@
-set shell := ["bash", "-lc"]
+# https://just.systems
+
+# Use bash for consistent behavior
+set shell := ["bash", "-cu"]
 
 default: help
 
@@ -17,16 +20,21 @@ test:
 integration:
     UV_CACHE_DIR=.uv-cache uv run pytest tests/test_integration_emulators.py -m integration
 
-qa-index:
+qa-index embedder="mini-lm" persona_fields="all":
     uv run python -m search_ja_persona.cli index \
         --dataset qa_samples/qa_sample.parquet \
         --batch-size 64 \
-        --limit 100
+        --limit 100 \
+        --embedder {{embedder}} \
+        --persona-fields {{persona_fields}}
 
-qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" format="table":
+qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" format="table" embedder="mini-lm" persona_fields="all":
     uv run python -m search_ja_persona.cli search \
         --query {{query}} \
         --limit {{limit}} \
-        --format {{format}}
+        --format {{format}} \
+        --embedder {{embedder}} \
+        --persona-fields {{persona_fields}} \
+        --verbose
 
 qa: qa-index qa-search

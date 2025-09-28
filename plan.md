@@ -30,6 +30,21 @@
    - Document end-to-end indexing flow in the README: manifest creation, smoke run on sample shards, full run with resume.
    - Provide troubleshooting notes for restarting after failure and cleaning up partial emulator state if needed.
 
+## Future Enhancement: Semantic Embeddings
+1. **Embedder Abstraction**
+   - Introduce a pluggable embedder interface so the existing hashed n-gram vectorizer and future semantic models share the same integration points (indexer + search service).
+2. **OSS Embedding Models**
+   - Evaluate lightweight open-source models (e.g., `sentence-transformers/all-MiniLM-L6-v2`, `intfloat/e5-small`) using the `sentence-transformers` library and cache them locally.
+   - Provide CLI/config options to select the model name and whether to use CPU or GPU inference.
+3. **Closed-Source Connectors**
+   - Allow optional adapters for hosted embedding APIs (OpenAI, Cohere, Vertex AI, etc.) driven by environment variables and API keys without bundling those dependencies by default.
+4. **Index/Search Wiring**
+   - Extend indexing pipeline to chunk personas through the chosen embedder (with batching + retry/backoff) while maintaining deterministic fallbacks.
+   - Update search to reuse the same embedder for query vectors and log which backend served the request when `--verbose` is enabled.
+5. **Validation & Benchmarking**
+   - Add tests/fakes for new embedder interface, and create a QA script comparing n-gram vs semantic hits on the QA dataset.
+   - Document setup steps, expected latency, and resource requirements in the README.
+
 ## Testing Strategy
 - Continue using fake transports and state-file fixtures to keep tests independent of running emulators.
 - Add resume-path tests that write to temporary directories to mimic abrupt termination scenarios.

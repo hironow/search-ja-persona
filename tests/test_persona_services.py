@@ -1,7 +1,7 @@
 from pathlib import Path
 from unittest.mock import Mock
 
-from search_ja_persona.vectorizer import HashedNgramVectorizer
+from search_ja_persona.embeddings import HashedNgramEmbedder
 from search_ja_persona.repository import PersonaRepository
 from search_ja_persona.services import (
     ElasticsearchService,
@@ -29,7 +29,7 @@ class FakeTransport:
 
 
 def test_vectorizer_is_deterministic() -> None:
-    vectorizer = HashedNgramVectorizer(dimension=8, ngram_sizes=(2, 3))
+    vectorizer = HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3))
     first = vectorizer.embed("介護の品質を高めるリーダー")
     second = vectorizer.embed("介護の品質を高めるリーダー")
 
@@ -93,7 +93,8 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
 
     indexer = PersonaIndexer(
         repository=PersonaRepository([parquet_path]),
-        vectorizer=HashedNgramVectorizer(dimension=8, ngram_sizes=(2, 3)),
+        embedder=HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3)),
+        persona_fields=("persona",),
         qdrant=qdrant,
         elasticsearch=elastic,
         neo4j=neo4j,
@@ -118,13 +119,20 @@ def test_search_service_merges_results() -> None:
     neo4j = Mock()
 
     qdrant.search.return_value = [
-        {"id": "1", "score": 0.9},
-        {"id": "2", "score": 0.7},
+        {"id": "1", "score": 0.9, "payload": {"persona_fields": {"persona": "東京"}}},
+        {"id": "2", "score": 0.7, "payload": {"persona_fields": {"persona": "大阪"}}},
     ]
     elastic.search.return_value = {
         "hits": {
             "hits": [
-                {"_id": "2", "_source": {"uuid": "2", "text": "大阪の菓子職人"}},
+                {
+                    "_id": "2",
+                    "_source": {
+                        "uuid": "2",
+                        "text": "大阪の菓子職人",
+                        "persona": "大阪の菓子職人",
+                    },
+                },
             ]
         }
     }
@@ -137,10 +145,11 @@ def test_search_service_merges_results() -> None:
     }
 
     service = PersonaSearchService(
-        vectorizer=HashedNgramVectorizer(dimension=8, ngram_sizes=(2, 3)),
+        embedder=HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3)),
         qdrant=qdrant,
         elasticsearch=elastic,
         neo4j=neo4j,
+        persona_fields=("persona",),
     )
 
     results = service.search("介護", limit=2)
@@ -148,6 +157,7 @@ def test_search_service_merges_results() -> None:
     assert results[0]["uuid"] == "1"
     assert results[0]["context"]["prefecture"] == "東京都"
     assert any(hit["uuid"] == "2" for hit in results)
+    assert results[0]["persona_fields"]["persona"] == "東京"
 
 
 def test_qdrant_ensure_collection_handles_conflict() -> None:

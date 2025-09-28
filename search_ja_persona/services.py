@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import base64
-import http.client
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, Iterable
+
+import aiohttp
 
 
 @dataclass
@@ -32,8 +34,7 @@ class SimpleHttpTransport:
         self.timeout = timeout
         self._auth_header = self._build_auth_header(auth)
 
-    def request(self, descriptor: RequestDescriptor) -> dict[str, Any]:
-        body_bytes: bytes | None
+    async def _perform_request(self, descriptor: RequestDescriptor) -> dict[str, Any]:
         headers = {"Content-Type": "application/json"}
         if descriptor.headers:
             headers.update(descriptor.headers)
@@ -41,34 +42,49 @@ class SimpleHttpTransport:
             headers["Authorization"] = self._auth_header
 
         if descriptor.body is None:
-            body_bytes = None
+            data = None
         elif isinstance(descriptor.body, (dict, list)):
-            body_bytes = json.dumps(descriptor.body).encode("utf-8")
+            data = json.dumps(descriptor.body)
         elif isinstance(descriptor.body, str):
-            body_bytes = descriptor.body.encode("utf-8")
+            data = descriptor.body
         else:
             raise TypeError(f"Unsupported body type: {type(descriptor.body)!r}")
 
         path = descriptor.path if descriptor.path.startswith("/") else f"/{descriptor.path}"
+        url = f"http://{self.host}:{self.port}{path}"
 
-        connection = http.client.HTTPConnection(self.host, self.port, timeout=self.timeout)
-        connection.request(descriptor.method.upper(), path, body=body_bytes, headers=headers)
-        response = connection.getresponse()
+        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.request(
+                descriptor.method.upper(),
+                url,
+                data=data,
+                headers=headers,
+            ) as response:
+                text = await response.text()
+                if not (200 <= response.status < 300):
+                    raise RuntimeError(
+                        f"HTTP {response.status} {response.reason}: {text}"
+                    )
+                if not text:
+                    return {}
+                try:
+                    return await response.json()
+                except aiohttp.ContentTypeError:
+                    try:
+                        return json.loads(text)
+                    except json.JSONDecodeError:
+                        return {"raw": text}
 
-        payload = response.read()
-        connection.close()
-
-        if not (200 <= response.status < 300):
-            raise RuntimeError(
-                f"HTTP {response.status} {response.reason}: {payload.decode('utf-8', errors='ignore')}"
-            )
-
-        if not payload:
-            return {}
+    def request(self, descriptor: RequestDescriptor) -> dict[str, Any]:
+        loop = asyncio.new_event_loop()
         try:
-            return json.loads(payload.decode("utf-8"))
-        except json.JSONDecodeError:
-            return {"raw": payload.decode("utf-8")}
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(self._perform_request(descriptor))
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.close()
+            asyncio.set_event_loop(None)
 
     @staticmethod
     def _build_auth_header(auth: tuple[str, str] | None) -> str | None:
@@ -167,6 +183,10 @@ class ElasticsearchService:
                 }
             }
         }
+        persona_props = {
+            field: {"type": "text"} for field in PERSONA_TEXT_FIELDS
+        }
+        body["mappings"]["properties"].update(persona_props)
         request = RequestDescriptor(
             method="PUT",
             path=f"/{self.index}",
@@ -286,3 +306,4 @@ class Neo4jService:
             "prefecture": row[2],
             "relationships": row[3],
         }
+from .persona_fields import PERSONA_TEXT_FIELDS

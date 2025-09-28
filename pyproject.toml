@@ -6,10 +6,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "datasets>=4.1.1",
+    "fastembed>=0.7.3",
+    "onnxruntime>=1.16",
     "pandas>=2.3.2",
     "pyarrow>=21.0.0",
     "python-dotenv>=1.1.1",
+    "aiohttp>=3.9.5",
     "rich>=14.1.0",
+    "sentence-transformers>=5.1.1",
 ]
 
 [dependency-groups]
