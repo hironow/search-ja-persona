@@ -5,19 +5,37 @@
 - Provide a Python API that supports free-form queries by fusing vector and keyword signals and enriches the top persona with graph context.
 - Follow TDD: drive behavior with failing tests, implement minimal code, then consider refactoring.
 
-## Approach
-1. Build a lightweight `PersonaRepository` to stream persona records from parquet files without loading the entire dataset into memory.
-2. Implement a deterministic hashed character n-gram embedder to generate fixed-size vectors without downloading external models.
-3. Create service-specific clients (`QdrantService`, `ElasticsearchService`, `Neo4jService`) that wrap HTTP interactions with the local emulators, keeping transport swappable for testing.
-4. Develop a `PersonaIndexer` that reads personas from the repository, embeds them, and synchronizes each service (collection/index creation + batched upserts).
-5. Provide a `PersonaSearchService` that embeds the query, queries Qdrant for candidate UUIDs, refines via Elasticsearch, and fetches relationship annotations for the best match from Neo4j.
-6. Expose a cohesive orchestration entry point (e.g., `main.py` or module function) illustrating indexing and search usage with dependency injection for paths and hosts.
+## Completed Foundations
+- Streaming repository, hashed n-gram vectorizer, and service clients are implemented with unit coverage.
+- Batch indexer coordinates embeddings + emulator sync, and search orchestration is available through `PersonaApplication`.
+- CLI and application layers demonstrate dependency injection patterns for local usage.
+
+## Next Focus: Large-Scale Indexing Workflow
+1. **Dataset Manifest & Sampling**
+   - Enumerate parquet shards under `datasets/Nemotron-Personas-Japan` into a deterministic manifest (sorted list with row counts when available).
+   - Provide a helper to build a small sampled subset (e.g., first N shards) for smoke testing before committing to full indexing.
+   - Drive with tests that manifest ordering is stable and sampling respects limits.
+2. **Resumable Progress Tracking**
+   - Introduce a progress store (e.g., JSON state file) that records the last successfully processed shard and intra-shard row offset.
+   - Update `PersonaIndexer` (or a wrapper) to persist progress after each batch and resume by skipping completed work.
+   - Cover with tests simulating interruption and verifying resume continues from the recorded point without duplicating entries.
+3. **CLI Support for Manifest + Resume**
+   - Extend the `index` command to accept `--manifest` and `--state-file` options (default locations under `datasets/` and `.cache/`).
+   - Ensure CLI validates the manifest exists, initializes progress state when absent, and surfaces resume instructions in help text.
+   - Add integration-style tests using fakes to assert CLI passes state paths through to the indexer.
+4. **Operational Guardrails**
+   - Implement chunked commit sizes (tunable batch size) and optional throttling to avoid overwhelming emulators.
+   - Add logging or metrics hooks to report processed shard counts and estimated completion time (can be stubbed in tests).
+5. **Documentation + Recipes**
+   - Document end-to-end indexing flow in the README: manifest creation, smoke run on sample shards, full run with resume.
+   - Provide troubleshooting notes for restarting after failure and cleaning up partial emulator state if needed.
 
 ## Testing Strategy
-- Write unit tests with fake HTTP transports to assert request payloads and orchestration logic (no large mocks, but small fakes capturing method calls).
-- Ensure the embedder and repository behavior is covered by direct tests (deterministic vectors, chunked iteration).
-- Keep tests independent from running emulators while mirroring real payloads so they double as usage documentation.
+- Continue using fake transports and state-file fixtures to keep tests independent of running emulators.
+- Add resume-path tests that write to temporary directories to mimic abrupt termination scenarios.
+- Keep dataset-manifest logic pure (no network or emulator dependencies) so it can be validated quickly in CI.
 
 ## Open Questions / Assumptions
 - Assume emulators are reachable at the default ports listed in `emulator/README.md` when running outside tests.
-- Initial implementation will index a configurable sample size to keep iteration tractable; scaling strategies can follow once validated.
+- Manifest generation should tolerate missing or newly added shards by re-scanning directories when requested.
+- Progress tracking will focus on local filesystem state; distributed coordination (e.g., cloud storage) can follow later if needed.

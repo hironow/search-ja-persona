@@ -5,6 +5,7 @@ from .repository import PersonaRepository
 from .services import QdrantService, ElasticsearchService, Neo4jService
 from .indexer import PersonaIndexer
 from .search import PersonaSearchService
+from . import cli, datasets, manifest
 
 __all__ = [
     "HashedNgramVectorizer",
@@ -14,4 +15,7 @@ __all__ = [
     "Neo4jService",
     "PersonaIndexer",
     "PersonaSearchService",
+    "cli",
+    "datasets",
+    "manifest",
 ]
