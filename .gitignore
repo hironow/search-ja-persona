@@ -7,3 +7,4 @@ qa_samples/
 
 # env
 .env.keys
+.env.local
