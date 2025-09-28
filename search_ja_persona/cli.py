@@ -5,12 +5,17 @@ import json
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from rich.console import Console
+from rich.table import Table
+
 from . import datasets
 from .indexer import PersonaIndexer
 from .repository import PersonaRepository
 from .search import PersonaSearchService
 from .services import ElasticsearchService, Neo4jService, QdrantService
 from .vectorizer import HashedNgramVectorizer
+
+console = Console()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -67,6 +72,7 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument("--neo4j-port", type=int, default=7474)
     search_parser.add_argument("--neo4j-user", default="neo4j")
     search_parser.add_argument("--neo4j-password", default="password")
+    search_parser.add_argument("--format", choices=("table", "json"), default="table")
 
     download_parser = subcommands.add_parser("download-dataset", help="Download dataset into the Hugging Face cache")
     download_parser.add_argument("--dataset-name", default=datasets.DEFAULT_DATASET_NAME)
@@ -105,6 +111,8 @@ def _build_vectorizer(dimension: int, ngram_sizes_raw: str) -> HashedNgramVector
 
 def _run_index(args: argparse.Namespace) -> None:
     dataset_paths = _expand_paths(args.dataset)
+    console.log(f"Resolved {len(dataset_paths)} dataset path(s)")
+
     repository = PersonaRepository(dataset_paths)
     vectorizer = _build_vectorizer(args.vector_dimension, args.ngram_sizes)
 
@@ -130,7 +138,12 @@ def _run_index(args: argparse.Namespace) -> None:
         elasticsearch=elastic,
         neo4j=neo4j,
     )
+
+    console.log(
+        f"Indexing personas (batch_size={args.batch_size}, limit={args.limit or '∞'})"
+    )
     indexer.index(batch_size=args.batch_size, limit=args.limit)
+    console.log("Indexing completed successfully")
 
 
 def _run_search(args: argparse.Namespace) -> None:
@@ -157,7 +170,31 @@ def _run_search(args: argparse.Namespace) -> None:
         neo4j=neo4j,
     )
     results = service.search(args.query, limit=args.limit)
-    print(json.dumps(results, ensure_ascii=False))
+    if args.format == "json":
+        console.print_json(json.dumps(results, ensure_ascii=False))
+        return
+
+    if not results:
+        console.print("[bold yellow]No results found[/bold yellow]")
+        return
+
+    table = Table(title="Search Results", show_lines=True)
+    table.add_column("UUID", overflow="fold")
+    table.add_column("Score", justify="right")
+    table.add_column("Prefecture")
+    table.add_column("Region")
+    table.add_column("Text", overflow="fold", max_width=80)
+
+    for entry in results:
+        table.add_row(
+            str(entry.get("uuid", "")),
+            f"{entry.get('score', 0.0):.4f}",
+            entry.get("prefecture") or "",
+            entry.get("region") or "",
+            (entry.get("text") or "").strip(),
+        )
+
+    console.print(table)
 
 
 def _run_download_dataset(args: argparse.Namespace) -> None:
@@ -169,7 +206,9 @@ def _run_download_dataset(args: argparse.Namespace) -> None:
         revision=args.revision,
         token=args.token,
     )
+    console.log("Downloading dataset shards...")
     datasets.ensure_dataset_cached(config)
+    console.log("Dataset download completed")
 
 
 if __name__ == "__main__":  # pragma: no cover

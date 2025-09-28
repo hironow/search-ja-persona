@@ -1,5 +1,8 @@
 # cache
 .hf-cache/
 
+# qa
+qa_samples/
+
 # env
 .env.keys

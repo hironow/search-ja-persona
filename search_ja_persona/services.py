@@ -108,7 +108,13 @@ class QdrantService:
                 }
             },
         )
-        return self.transport.request(request)
+        try:
+            return self.transport.request(request)
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if "already exists" in message or "409" in message:
+                return {"status": "exists"}
+            raise
 
     def upsert_points(self, points: Iterable[dict[str, Any]]) -> dict[str, Any]:
         body = {"points": list(points)}
@@ -166,7 +172,13 @@ class ElasticsearchService:
             path=f"/{self.index}",
             body=body,
         )
-        return self.transport.request(request)
+        try:
+            return self.transport.request(request)
+        except RuntimeError as exc:
+            message = str(exc).lower()
+            if "already exists" in message or "resource_already_exists" in message or "400" in message:
+                return {"status": "exists"}
+            raise
 
     def bulk_index(self, documents: Iterable[dict[str, Any]]) -> dict[str, Any]:
         lines: list[str] = []

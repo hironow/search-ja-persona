@@ -148,3 +148,49 @@ def test_search_service_merges_results() -> None:
     assert results[0]["uuid"] == "1"
     assert results[0]["context"]["prefecture"] == "東京都"
     assert any(hit["uuid"] == "2" for hit in results)
+
+
+def test_qdrant_ensure_collection_handles_conflict() -> None:
+    class ConflictTransport:
+        def __init__(self) -> None:
+            self.requests: list[RequestDescriptor] = []
+
+        def request(self, descriptor: RequestDescriptor) -> dict:
+            self.requests.append(descriptor)
+            raise RuntimeError("HTTP 409 Conflict: Collection `personas` already exists!")
+
+    conflict_transport = ConflictTransport()
+
+    service = QdrantService(
+        transport=conflict_transport,
+        host="localhost",
+        port=6333,
+        collection="personas",
+        vector_size=8,
+    )
+
+    response = service.ensure_collection()
+
+    assert response["status"] == "exists"
+    assert conflict_transport.requests  # ensure request was attempted
+
+
+def test_elasticsearch_ensure_index_handles_exists() -> None:
+    class ConflictTransport:
+        def __init__(self) -> None:
+            self.requests: list[RequestDescriptor] = []
+
+        def request(self, descriptor: RequestDescriptor) -> dict:
+            self.requests.append(descriptor)
+            raise RuntimeError(
+                "HTTP 400 Bad Request: {\"error\":{\"root_cause\":[{\"type\":\"resource_already_exists_exception\"}]}}"
+            )
+
+    transport = ConflictTransport()
+
+    service = ElasticsearchService(transport=transport, host="localhost", port=9200, index="personas")
+
+    response = service.ensure_index()
+
+    assert response["status"] == "exists"
+    assert transport.requests

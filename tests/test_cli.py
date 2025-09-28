@@ -3,11 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import json
-
 import pytest
 
-from search_ja_persona import cli
+import json
+from rich.console import Console
+
+import search_ja_persona.cli as cli
 from search_ja_persona.repository import PersonaRepository
 
 
@@ -54,6 +55,8 @@ def test_cli_index_invokes_indexer(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     monkeypatch.setattr(cli, "QdrantService", FakeService)
     monkeypatch.setattr(cli, "ElasticsearchService", FakeService)
     monkeypatch.setattr(cli, "Neo4jService", FakeService)
+    test_console = Console(record=True)
+    monkeypatch.setattr(cli, "console", test_console)
 
     cli.main(
         [
@@ -76,7 +79,7 @@ def test_cli_index_invokes_indexer(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert recorded["indexer_init"]["vectorizer"].dimension == 8
 
 
-def test_cli_search_outputs_results(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_search_outputs_results(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeSearchService:
         def __init__(self, **_: Any) -> None:
             pass
@@ -95,10 +98,12 @@ def test_cli_search_outputs_results(monkeypatch: pytest.MonkeyPatch, capsys: pyt
 
     monkeypatch.setattr(cli, "PersonaSearchService", FakeSearchService)
 
-    cli.main(["search", "--query", "介護", "--limit", "1"])
+    test_console = Console(record=True)
+    monkeypatch.setattr(cli, "console", test_console)
 
-    captured = capsys.readouterr()
-    payload = json.loads(captured.out)
+    cli.main(["search", "--query", "介護", "--limit", "1", "--format", "json"])
+
+    payload = json.loads(test_console.export_text().strip())
     assert payload[0]["uuid"] == "1"
     assert payload[0]["prefecture"] == "東京都"
 
@@ -112,6 +117,9 @@ def test_cli_download_dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     monkeypatch.setattr(cli.datasets, "ensure_dataset_cached", fake_cache)
 
     cache_dir = tmp_path / "cache"
+
+    test_console = Console(record=True)
+    monkeypatch.setattr(cli, "console", test_console)
 
     cli.main(
         [
