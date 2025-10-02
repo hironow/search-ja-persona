@@ -1,16 +1,25 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["config:recommended"],
+	"extends": [
+		"config:recommended"
+	],
 	"packageRules": [
 		{
-			"matchUpdateTypes": ["minor"],
+			"matchUpdateTypes": [
+				"minor"
+			],
 			"groupName": "all minor updates"
 		},
 		{
-			"matchUpdateTypes": ["patch"],
+			"matchUpdateTypes": [
+				"patch"
+			],
 			"groupName": "all patch updates"
 		}
 	],
-	"schedule": ["every weekend"],
-	"timezone": "Asia/Tokyo"
+	"schedule": [
+		"every weekend"
+	],
+	"timezone": "Asia/Tokyo",
+	"stabilityDays": 7
 }
