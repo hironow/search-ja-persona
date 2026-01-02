@@ -1,6 +1,6 @@
 # search-ja-persona
 
-Self-contained tooling for indexing and searching the Nemotron Personas Japan dataset with local emulators (Qdrant, Elasticsearch, Neo4j). The CLI coordinates data ingestion, vector and keyword search, and persona graph context so developers can explore personas without reading the source first.
+Self-contained tooling for indexing and searching the [Nemotron Personas Japan](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan) dataset with local emulators (Qdrant, Elasticsearch, Neo4j). The CLI coordinates data ingestion, vector and keyword search, and persona graph context so developers can explore personas without reading the source first.
 
 ## Pipeline at a Glance
 
@@ -29,18 +29,25 @@ Each search result exposes a `score` field:
 | Path | Purpose |
 |------|---------|
 | `search_ja_persona/cli.py` | Rich CLI entry point for indexing, searching, downloading, and clearing emulators |
+| `search_ja_persona/application.py` | High-level programmatic API (`PersonaApplication`) |
+| `search_ja_persona/repository.py` | Parquet streaming with batch and limit support |
 | `search_ja_persona/indexer.py` | Batch ingestion into Qdrant, Elasticsearch, and Neo4j |
 | `search_ja_persona/search.py` | Query orchestration and hit fusion logic |
 | `search_ja_persona/embeddings.py` | Embedding backends (hashed n-gram, SentenceTransformers, fastembed) |
 | `search_ja_persona/services.py` | Thin HTTP transports for emulator APIs |
+| `search_ja_persona/datasets.py` | HuggingFace dataset download helpers |
+| `search_ja_persona/manifest.py` | Parquet file manifest utilities |
+| `search_ja_persona/persona_fields.py` | Persona text field definitions (6 fields) |
 | `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
 | `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
+| `docs/architecture.md` | System architecture documentation |
+| `docs/adr/` | Architecture Decision Records |
 
 ## Prerequisites
 
 - Python 3.12+
 - [`uv`](https://github.com/astral-sh/uv) for dependency management (recommended)
-- Local emulators running: change into `emulator/` and use `./start-emulators.sh` (or `docker compose up -d`).
+- Local emulators running: change into `emulator/` and use `just start` (or `docker compose up -d`).
 
 ## Getting the Dataset
 
@@ -105,7 +112,7 @@ uv run python -m search_ja_persona.cli index \
     --persona-fields all
 ```
 
-> Tip: `just qa-index embedder="mini-lm" persona_fields="all"` wraps the same command.
+> Tip: `just qa-index embedder="mini-lm" persona_fields="all"` runs a similar command with `--batch-size 64`.
 
 ### Metadata Tracking
 
@@ -132,9 +139,26 @@ uv run python -m search_ja_persona.cli search \
 - `uv run python -m search_ja_persona.cli clear-emulators` drops the Qdrant collection, Elasticsearch index, Neo4j persona nodes, and deletes cached metadata (asks for confirmation).
 - `just test` runs the full pytest suite (emulator integration tests are skipped unless the emulators are up and the dataset cache is populated).
 
+## Development Tasks (justfile)
+
+The project uses [just](https://just.systems) for task automation:
+
+| Task | Description |
+|------|-------------|
+| `just help` | List all available tasks |
+| `just format` | Format code with ruff |
+| `just lint` | Lint and auto-fix with ruff |
+| `just test` | Run pytest (excludes integration tests) |
+| `just integration` | Run integration tests (requires emulators) |
+| `just qa-clear` | Clear emulator data |
+| `just qa-sample limit=1000` | Generate QA sample parquet |
+| `just qa-index embedder="mini-lm"` | Index QA sample |
+| `just qa-search query="..."` | Search QA sample |
+| `just qa` | Run qa-index + qa-search |
+
 ## Troubleshooting Checklist
 
-- Ensure `./start-emulators.sh` completed and ports 6333, 9200, 7474 are reachable.
+- Ensure `just start` completed and ports 6333, 9200, 7474 are reachable.
 - Hugging Face downloads require authentication when the dataset is gated; pass `--token` to `download-dataset` if needed.
 - If you switch embedder presets or persona field subsets, the CLI prompts to reset existing indexes so vector dimensions stay aligned across services.
 
