@@ -35,8 +35,13 @@ Each search result exposes a `score` field:
 | `search_ja_persona/search.py` | Query orchestration and hit fusion logic |
 | `search_ja_persona/embeddings.py` | Embedding backends (hashed n-gram, SentenceTransformers, fastembed) |
 | `search_ja_persona/services.py` | Thin HTTP transports for emulator APIs |
+| `search_ja_persona/datasets.py` | HuggingFace dataset download helpers |
+| `search_ja_persona/manifest.py` | Parquet file manifest utilities |
+| `search_ja_persona/persona_fields.py` | Persona text field definitions (6 fields) |
 | `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
 | `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
+| `docs/architecture.md` | System architecture documentation |
+| `docs/adr/` | Architecture Decision Records |
 
 ## Prerequisites
 
@@ -133,6 +138,23 @@ uv run python -m search_ja_persona.cli search \
 
 - `uv run python -m search_ja_persona.cli clear-emulators` drops the Qdrant collection, Elasticsearch index, Neo4j persona nodes, and deletes cached metadata (asks for confirmation).
 - `just test` runs the full pytest suite (emulator integration tests are skipped unless the emulators are up and the dataset cache is populated).
+
+## Development Tasks (justfile)
+
+The project uses [just](https://just.systems) for task automation:
+
+| Task | Description |
+|------|-------------|
+| `just help` | List all available tasks |
+| `just format` | Format code with ruff |
+| `just lint` | Lint and auto-fix with ruff |
+| `just test` | Run pytest (excludes integration tests) |
+| `just integration` | Run integration tests (requires emulators) |
+| `just qa-clear` | Clear emulator data |
+| `just qa-sample limit=1000` | Generate QA sample parquet |
+| `just qa-index embedder="mini-lm"` | Index QA sample |
+| `just qa-search query="..."` | Search QA sample |
+| `just qa` | Run qa-index + qa-search |
 
 ## Troubleshooting Checklist
 
