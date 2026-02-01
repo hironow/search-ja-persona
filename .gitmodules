@@ -1,6 +1,3 @@
 [submodule "datasets/Nemotron-Personas-Japan"]
 	path = datasets/Nemotron-Personas-Japan
 	url = https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan
-[submodule "emulator"]
-	path = emulator
-	url = git@github.com:hironow/emulator-set.git
