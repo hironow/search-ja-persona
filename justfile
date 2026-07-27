@@ -9,10 +9,18 @@ help:
     @just --list --unsorted
 
 format:
-    uv run ruff format .
+    uv run --frozen ruff format .
 
 lint:
-    uv run ruff check --fix .
+    uv run --frozen ruff check --fix .
+
+# Install prek-managed git hooks once per clone
+install-hooks:
+    mise exec -- prek install
+
+# Run every prek hook against all files (matches what git invokes on commit)
+pre-commit:
+    mise exec -- prek run --all-files
 
 test:
     UV_CACHE_DIR=.uv-cache uv run pytest

@@ -1,0 +1,42 @@
+# Dependabot version updates (first-party) — replaces Renovate (renovate.json
+# removed). Dependabot security updates are enabled separately in the repo's
+# security settings.
+#
+# Supply-chain hardening: a 7-day `cooldown` holds every routine bump until the
+# new version has been public for a week, so a compromised-then-yanked release is
+# not pulled in on day zero. Cooldown applies to version updates only —
+# Dependabot SECURITY updates (vulnerability fixes) bypass it and still land fast.
+#
+# Ecosystems in this repo:
+#   github-actions -> .github/workflows/*.yaml (SHA-pinned actions)
+#   uv             -> root uv project (pyproject.toml + uv.lock; runtime deps)
+#
+# Out of scope: emulator/compose.yaml `image:` tags (stock images, hand-managed;
+# Dependabot's docker ecosystem covers Dockerfiles only, and this repo has none).
+#
+# NOTE: filename uses `.yaml` per this repo's YAML convention. Reviewer: hironow.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    labels: ["dependencies", "github-actions"]
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    labels: ["dependencies", "python"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
