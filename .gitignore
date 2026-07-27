@@ -8,3 +8,6 @@ qa_samples/
 # env
 .env.keys
 .env.local
+
+# generated notebook exports (from `just notebook-export`)
+marimo/*.html

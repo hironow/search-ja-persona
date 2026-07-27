@@ -38,5 +38,6 @@ markers = [
 [tool.ruff]
 exclude = [
     "emulator/",
+    "marimo/",
 ]
 
