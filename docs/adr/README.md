@@ -61,4 +61,4 @@ ADRs are immutable after acceptance. To change a decision, create a new ADR that
 
 ## Index
 
-No ADRs have been created yet.
+- [0001](0001-vendor-emulator-compose.md) — Vendor a minimal emulator compose stack instead of a submodule
