@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: prek hooks + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # CI is mise-independent (mise.toml is for local dev). uv comes from the
+      # official action with a warm cache so the heavy sync (torch, onnxruntime,
+      # sentence-transformers) is not repaid every run.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      # just is needed because the prek local hooks shell out to `just format` /
+      # `just lint`; prek runs the same hook set git would run locally.
+      - name: Install just and prek
+        run: |
+          uv tool install rust-just
+          uv tool install prek
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Lint + format gate (prek hooks)
+        run: prek run --all-files --show-diff-on-failure
+
+      # --frozen: use the committed lock as-is (no re-resolution), so CI tests the
+      # exact pinned versions and never rewrites uv.lock.
+      - name: Unit tests
+        run: uv run --frozen pytest -q
