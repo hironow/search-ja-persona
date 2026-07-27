@@ -132,7 +132,10 @@ This enables automatic reuse of settings across `index` and `search` commands.
 
 ## Emulator Infrastructure
 
-The system requires three local emulators (via Docker Compose in `emulator/`):
+The system requires three local emulators, provided by a standalone Docker
+Compose stack in `emulator/` (`cd emulator && docker compose up -d`). It is a
+vendored minimal subset of github.com/hironow/emulator-set. See
+`emulator/README.md`.
 
 | Service | Port | Purpose |
 |---------|------|---------|

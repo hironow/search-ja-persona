@@ -40,14 +40,16 @@ Each search result exposes a `score` field:
 | `search_ja_persona/persona_fields.py` | Persona text field definitions (6 fields) |
 | `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
 | `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
+| `emulator/compose.yaml` | Standalone Qdrant/Elasticsearch/Neo4j stack (vendored minimal subset) |
 | `docs/architecture.md` | System architecture documentation |
+| `docs/storage-footprint.md` | Disk capacity requirements and space-reclaim guide |
 | `docs/adr/` | Architecture Decision Records |
 
 ## Prerequisites
 
 - Python 3.12+
 - [`uv`](https://github.com/astral-sh/uv) for dependency management (recommended)
-- Local emulators running: change into `emulator/` and use `just start` (or `docker compose up -d`).
+- Local emulators running: `cd emulator && docker compose up -d` (Qdrant, Elasticsearch, Neo4j). See [`emulator/README.md`](emulator/README.md).
 
 ## Getting the Dataset
 
@@ -158,7 +160,7 @@ The project uses [just](https://just.systems) for task automation:
 
 ## Troubleshooting Checklist
 
-- Ensure `just start` completed and ports 6333, 9200, 7474 are reachable.
+- Ensure `docker compose up -d` (in `emulator/`) completed and ports 6333, 9200, 7474 are reachable (`docker compose ps` shows health).
 - Hugging Face downloads require authentication when the dataset is gated; pass `--token` to `download-dataset` if needed.
 - If you switch embedder presets or persona field subsets, the CLI prompts to reset existing indexes so vector dimensions stay aligned across services.
 
