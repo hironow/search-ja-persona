@@ -40,30 +40,38 @@ Each search result exposes a `score` field:
 | `search_ja_persona/persona_fields.py` | Persona text field definitions (6 fields) |
 | `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
 | `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
+| `emulator/compose.yaml` | Standalone Qdrant/Elasticsearch/Neo4j stack (vendored minimal subset) |
 | `docs/architecture.md` | System architecture documentation |
+| `docs/storage-footprint.md` | Disk capacity requirements and space-reclaim guide |
 | `docs/adr/` | Architecture Decision Records |
 
 ## Prerequisites
 
 - Python 3.12+
 - [`uv`](https://github.com/astral-sh/uv) for dependency management (recommended)
-- Local emulators running: change into `emulator/` and use `just start` (or `docker compose up -d`).
+- Local emulators running: `cd emulator && docker compose up -d` (Qdrant, Elasticsearch, Neo4j). See [`emulator/README.md`](emulator/README.md).
 
 ## Getting the Dataset
 
-1. Hugging Face cache: run the CLI downloader (safe to rerun).
+The full corpus ships as a Git LFS submodule; the bundled QA sample needs no download.
+
+1. **Full corpus (submodule).** Check out `datasets/Nemotron-Personas-Japan` and pull its LFS blobs:
+   ```bash
+   git submodule update --init datasets/Nemotron-Personas-Japan
+   git -C datasets/Nemotron-Personas-Japan lfs pull
+   ```
+   This materializes the parquet shards under `datasets/Nemotron-Personas-Japan/data/`.
+
+2. **Hugging Face cache (alternative).** Populate a local HF cache instead of (or alongside) the submodule; safe to rerun:
    ```bash
    uv run python -m search_ja_persona.cli download-dataset \
        --dataset-name nvidia/Nemotron-Personas-Japan \
        --split train \
        --cache-dir .cache
    ```
-   The cached parquet shards sit under `~/.cache/huggingface`. You can also copy them into `datasets/Nemotron-Personas-Japan/data/` as this repo already demonstrates.
+   The `.arrow` shards land under the `--cache-dir` you pass (`.cache` here); `scripts/generate_qa_sample.py` reads from this cache.
 
-2. Optional: regenerate the bundled 1k sample parquet.
-   ```bash
-   uv run python -m scripts.generate_qa_sample --limit 1000
-   ```
+3. **QA sample.** `qa_samples/qa_sample.parquet` (1k rows) is committed, so quick QA flows work out of the box — see [Generating the QA Sample](#generating-the-qa-sample) to refresh it.
 
 ## Generating the QA Sample
 
@@ -86,7 +94,7 @@ Override the default count with `--limit` when needed (for example, `--limit 200
 
 ### Full corpus (about 1,000,000 rows)
 
-Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` using a SentenceTransformer preset. Adjust `--batch-size` to match available memory; leaving `--limit` unset consumes all rows.
+Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` (requires the dataset submodule checked out — see [Getting the Dataset](#getting-the-dataset)) using a SentenceTransformer preset. Adjust `--batch-size` to match available memory; leaving `--limit` unset consumes all rows.
 
 ```bash
 uv run python -m search_ja_persona.cli index \
@@ -158,7 +166,7 @@ The project uses [just](https://just.systems) for task automation:
 
 ## Troubleshooting Checklist
 
-- Ensure `just start` completed and ports 6333, 9200, 7474 are reachable.
+- Ensure `docker compose up -d` (in `emulator/`) completed and ports 6333, 9200, 7474 are reachable (`docker compose ps` shows health).
 - Hugging Face downloads require authentication when the dataset is gated; pass `--token` to `download-dataset` if needed.
 - If you switch embedder presets or persona field subsets, the CLI prompts to reset existing indexes so vector dimensions stay aligned across services.
 
