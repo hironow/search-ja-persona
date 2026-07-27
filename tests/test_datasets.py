@@ -57,3 +57,22 @@ def test_ensure_dataset_cached_can_force_download(
     datasets.ensure_dataset_cached(config)
 
     assert called["kwargs"]["download_mode"] == "force_redownload"
+
+
+def test_ensure_dataset_cached_passes_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = {}
+
+    def fake_load_dataset(*args, **kwargs):
+        called["kwargs"] = kwargs
+
+    monkeypatch.setattr(datasets, "load_dataset", fake_load_dataset)
+
+    config = datasets.DatasetCacheConfig(token="secret-token")
+    datasets.ensure_dataset_cached(config)
+
+    # `datasets` uses `token`; the removed `use_auth_token` would be silently
+    # swallowed by **kwargs and ignore the credential.
+    assert called["kwargs"]["token"] == "secret-token"
+    assert "use_auth_token" not in called["kwargs"]
