@@ -1,0 +1,90 @@
+# Minimal local emulator stack for search-ja-persona.
+#
+# Vendored subset derived from github.com/hironow/emulator-set, trimmed to the
+# three backends this codebase talks to over plain HTTP:
+#   Qdrant (vector), Elasticsearch (keyword), Neo4j (graph).
+#
+# Self-contained on purpose: no external network, no profiles, no companion CLI
+# services. `docker compose up -d` from this directory brings up all three on
+# the ports and credentials that search_ja_persona defaults to.
+#
+# Ports / auth match search_ja_persona/application.py:ApplicationConfig:
+#   Qdrant 6333 | Elasticsearch 9200 | Neo4j 7474 (HTTP) / 7687 (Bolt)
+#   Neo4j auth: neo4j / password
+
+services:
+  # Qdrant vector database (REST on 6333, gRPC on 6334)
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-emulator
+    ports:
+      - "127.0.0.1:${QDRANT_REST_PORT:-6333}:6333"
+      - "127.0.0.1:${QDRANT_GRPC_PORT:-6334}:6334"
+    environment:
+      - QDRANT__LOG_LEVEL=INFO
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Elasticsearch keyword search (REST on 9200), single-node, security disabled
+  elasticsearch:
+    image: elasticsearch:9.4.3
+    container_name: elasticsearch-emulator
+    ports:
+      - "127.0.0.1:${ELASTICSEARCH_PORT:-9200}:9200"
+      - "127.0.0.1:${ELASTICSEARCH_TRANSPORT_PORT:-9300}:9300"
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - "bootstrap.memory_lock=false"
+      - "cluster.routing.allocation.disk.threshold_enabled=false"
+      - "action.destructive_requires_name=false"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  # Neo4j graph database (HTTP on 7474, Bolt on 7687)
+  neo4j:
+    image: neo4j:2025-community
+    container_name: neo4j-emulator
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT:-7474}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT:-7687}:7687"
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/password}
+      - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
+      - NEO4J_server_memory_heap_initial__size=512m
+      - NEO4J_server_memory_heap_max__size=1G
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/import
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+  elasticsearch_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:
