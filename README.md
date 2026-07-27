@@ -53,7 +53,7 @@ Each search result exposes a `score` field:
 
 ## Getting the Dataset
 
-The full corpus ships as a Git LFS submodule; the bundled QA sample needs no download.
+The full corpus ships as a Git LFS submodule; the 1k QA sample is generated locally (it is not checked in).
 
 1. **Full corpus (submodule).** Check out `datasets/Nemotron-Personas-Japan` and pull its LFS blobs:
    ```bash
@@ -71,12 +71,13 @@ The full corpus ships as a Git LFS submodule; the bundled QA sample needs no dow
    ```
    The `.arrow` shards land under the `--cache-dir` you pass (`.cache` here); `scripts/generate_qa_sample.py` reads from this cache.
 
-3. **QA sample.** `qa_samples/qa_sample.parquet` (1k rows) is committed, so quick QA flows work out of the box — see [Generating the QA Sample](#generating-the-qa-sample) to refresh it.
+3. **QA sample.** `qa_samples/qa_sample.parquet` (1k rows) is **not checked in** (it is git-ignored). Generate it for quick QA flows with `just qa-sample` once the dataset from step 1 or 2 is available — see [Generating the QA Sample](#generating-the-qa-sample).
 
 ## Generating the QA Sample
 
-The repository ships with `qa_samples/qa_sample.parquet`. Regenerate it whenever you
-need a fresh slice or after updating the source dataset:
+The QA flows read `qa_samples/qa_sample.parquet`, which is **git-ignored and not
+checked in** — generate it before the first `just qa` run, and regenerate it
+whenever you need a fresh slice or after updating the source dataset:
 
 1. Ensure the Hugging Face cache already contains `nvidia/Nemotron-Personas-Japan`.
    - Run the `download-dataset` command above, or allow the script to fall back to
@@ -109,7 +110,7 @@ uv run python -m search_ja_persona.cli index \
 
 ### QA sample (1,000 rows)
 
-Limit ingestion to the bundled sample parquet. The `--limit` guard ensures only the first 1,000 personas are processed even if you regenerate the sample with more rows.
+Limit ingestion to the generated sample parquet (`just qa-sample`). The `--limit` guard ensures only the first 1,000 personas are processed even if you regenerate the sample with more rows.
 
 ```bash
 uv run python -m search_ja_persona.cli index \

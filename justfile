@@ -52,3 +52,11 @@ qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" 
         --verbose
 
 qa: qa-index qa-search
+
+# Open the feature-catalog marimo notebook (pulls marimo[sql] on demand)
+notebook:
+    uv run --with "marimo[sql]" marimo edit marimo/catalog.py
+
+# Headless-run the catalog notebook and export static HTML (validation/preview)
+notebook-export:
+    uv run --with "marimo[sql]" marimo export html marimo/catalog.py -o marimo/catalog.html
