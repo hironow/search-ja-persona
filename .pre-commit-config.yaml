@@ -1,0 +1,48 @@
+# prek (j178/prek) — Rust reimplementation of pre-commit.
+# Install: just install-hooks   (== mise exec -- prek install)
+# Run:     just pre-commit      (== mise exec -- prek run --all-files)
+# CI runs the same hooks via `prek run --all-files` (see .github/workflows/ci.yaml).
+minimum_prek_version: "0.4.0"
+
+exclude: |
+  (?x)^(
+    emulator/|
+    marimo/|
+    datasets/|
+    \.env\.local$|
+    \.env\.keys$
+  )
+
+repos:
+  # Rust-native builtin hooks (fast, no external repo clone needed).
+  - repo: builtin
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Local hooks delegate to just recipes so the same checks run from the CLI
+  # (`just format`, `just lint`) and from prek / CI.
+  - repo: local
+    hooks:
+      - id: just-format
+        name: just format
+        entry: just format
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        description: Format Python with ruff.
+
+      - id: just-lint
+        name: just lint
+        entry: just lint
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        description: Lint Python with ruff (--fix).
