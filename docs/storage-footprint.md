@@ -67,7 +67,7 @@ The environment is CPU-only on macOS, so there is no CUDA bloat.
 
 | Item | Size | Needed for |
 |------|------|-----------|
-| `qa_samples/qa_sample.parquet` | ~1.1 MB | QA path (bundled, always present) |
+| `qa_samples/qa_sample.parquet` | ~1.1 MB | QA path (generated via `just qa-sample`; git-ignored, not checked in) |
 | `datasets/Nemotron-Personas-Japan/data/*.parquet` | ~1.6 GB (8 × 206 MB) | Full-corpus indexing |
 | `.hf-cache/nvidia___nemotron-personas-japan` (arrow) | ~3.3 GB | `download-dataset` / QA-sample regeneration only |
 
