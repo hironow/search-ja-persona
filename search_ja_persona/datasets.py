@@ -39,6 +39,6 @@ def ensure_dataset_cached(config: DatasetCacheConfig) -> None:
     if config.revision:
         kwargs["revision"] = config.revision
     if config.token:
-        kwargs["use_auth_token"] = config.token
+        kwargs["token"] = config.token
 
     load_dataset(config.dataset_name, **kwargs)
