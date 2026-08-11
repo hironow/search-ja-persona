@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timezone
+from collections.abc import Iterable, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, Sequence
 
 from rich.console import Console
 from rich.table import Table
@@ -17,6 +17,7 @@ from .embeddings import (
     SentenceTransformerEmbedder,
 )
 from .indexer import PersonaIndexer
+from .persona_fields import DEFAULT_PERSONA_FIELDS, PERSONA_TEXT_FIELDS
 from .repository import PersonaRepository
 from .search import PersonaSearchService
 from .services import (
@@ -25,7 +26,6 @@ from .services import (
     QdrantService,
     RequestDescriptor,
 )
-from .persona_fields import PERSONA_TEXT_FIELDS, DEFAULT_PERSONA_FIELDS
 
 console = Console()
 METADATA_PATH = Path(".cache/index_metadata.json")
@@ -255,7 +255,7 @@ def _write_index_metadata(
     if ngram_sizes is not None and not isinstance(ngram_sizes, list):
         ngram_sizes = list(ngram_sizes)
     data = {
-        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
         "embedder": {
             "preset": embedder_info.get("preset"),
             "type": embedder_info.get("type"),
@@ -303,7 +303,8 @@ def _collect_index_stats(
         )
         if size is not None:
             meta["qdrant_vector_size"] = int(size)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - any transport error means "unknown"
+        console.log(f"[yellow]Qdrant stats unavailable:[/yellow] {exc}")
         stats["qdrant_points"] = -1
 
     try:
@@ -314,7 +315,8 @@ def _collect_index_stats(
             )
         )
         stats["elasticsearch_docs"] = int(response.get("count", 0))
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - any transport error means "unknown"
+        console.log(f"[yellow]Elasticsearch stats unavailable:[/yellow] {exc}")
         stats["elasticsearch_docs"] = -1
 
     try:
@@ -333,7 +335,8 @@ def _collect_index_stats(
         )
         count = response.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
         stats["neo4j_nodes"] = int(count)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - any transport error means "unknown"
+        console.log(f"[yellow]Neo4j stats unavailable:[/yellow] {exc}")
         stats["neo4j_nodes"] = -1
 
     return stats, meta
@@ -353,9 +356,10 @@ def _should_reset(existing: dict | None, new_embedder: dict) -> bool:
         "normalize",
         "persona_fields",
     ):
-        if key in current or key in new_embedder:
-            if current.get(key) != new_embedder.get(key):
-                return True
+        if (key in current or key in new_embedder) and current.get(
+            key
+        ) != new_embedder.get(key):
+            return True
     return False
 
 
@@ -379,14 +383,14 @@ def _reset_indexes(
             RequestDescriptor("DELETE", f"/collections/{args.qdrant_collection}")
         )
         cleared.append(f"Qdrant collection '{args.qdrant_collection}'")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - reset is best-effort
+        console.log(f"[yellow]Qdrant reset skipped:[/yellow] {exc}")
 
     try:
         elastic.transport.request(RequestDescriptor("DELETE", f"/{args.es_index}"))
         cleared.append(f"Elasticsearch index '{args.es_index}'")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - reset is best-effort
+        console.log(f"[yellow]Elasticsearch reset skipped:[/yellow] {exc}")
 
     try:
         neo4j.transport.request(
@@ -403,8 +407,8 @@ def _reset_indexes(
             )
         )
         cleared.append("Neo4j Persona nodes")
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 - reset is best-effort
+        console.log(f"[yellow]Neo4j reset skipped:[/yellow] {exc}")
 
     try:
         METADATA_PATH.unlink()
@@ -506,10 +510,10 @@ def _run_index(args: argparse.Namespace) -> None:
     console.log(f"Resolved {len(dataset_paths)} dataset path(s)")
 
     existing_metadata = _load_index_metadata()
-    persona_fields, persona_note = _resolve_persona_fields(
+    persona_fields, _persona_note = _resolve_persona_fields(
         args, existing_metadata=existing_metadata, default=("persona",)
     )
-    setattr(args, "_persona_fields_resolved", persona_fields)
+    args._persona_fields_resolved = persona_fields
 
     repository = PersonaRepository(dataset_paths)
     embedder, embedder_info, _ = _build_embedder(args)
@@ -591,7 +595,7 @@ def _run_search(args: argparse.Namespace) -> None:
         default=("persona",),
         allow_metadata_default=True,
     )
-    setattr(args, "_persona_fields_resolved", persona_fields)
+    args._persona_fields_resolved = persona_fields
     embedder, embedder_info, metadata_note = _build_embedder(args)
     embedder_info["persona_fields"] = list(persona_fields)
     qdrant = QdrantService(

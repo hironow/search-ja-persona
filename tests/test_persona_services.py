@@ -2,16 +2,16 @@ from pathlib import Path
 from unittest.mock import Mock
 
 from search_ja_persona.embeddings import HashedNgramEmbedder
-from search_ja_persona.repository import PersonaRepository
+from search_ja_persona.indexer import PersonaIndexer
 from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
+from search_ja_persona.repository import PersonaRepository
+from search_ja_persona.search import PersonaSearchService
 from search_ja_persona.services import (
     ElasticsearchService,
     Neo4jService,
     QdrantService,
     RequestDescriptor,
 )
-from search_ja_persona.indexer import PersonaIndexer
-from search_ja_persona.search import PersonaSearchService
 
 
 class FakeTransport:

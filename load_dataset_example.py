@@ -1,5 +1,4 @@
 from datasets import load_dataset
-
 from search_ja_persona.datasets import DatasetCacheConfig, ensure_dataset_cached
 
 

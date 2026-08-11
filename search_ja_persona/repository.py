@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
 
 import pandas as pd
 from pyarrow.lib import ArrowInvalid

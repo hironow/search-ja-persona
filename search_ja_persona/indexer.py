@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .repository import PersonaRepository
-from .services import ElasticsearchService, Neo4jService, QdrantService
 from .embeddings import Embedder
 from .persona_fields import PERSONA_TEXT_FIELDS
+from .repository import PersonaRepository
+from .services import ElasticsearchService, Neo4jService, QdrantService
 
 
 @dataclass

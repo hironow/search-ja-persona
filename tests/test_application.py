@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from search_ja_persona.repository import PersonaRepository
 from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
+from search_ja_persona.repository import PersonaRepository
 
 
 def _write_sample_dataset(path: Path) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 import time
 from pathlib import Path
@@ -12,7 +13,8 @@ from search_ja_persona.repository import PersonaRepository
 from search_ja_persona.services import RequestDescriptor, SimpleHttpTransport
 
 pytest.importorskip("datasets")
-from datasets import DownloadConfig, config as datasets_config, load_dataset  # noqa: E402
+from datasets import DownloadConfig, load_dataset
+from datasets import config as datasets_config
 
 pytestmark = pytest.mark.integration
 
@@ -114,7 +116,7 @@ def _load_sample_rows(limit: int = 10) -> list[dict]:
                 local_files_only=True,
             ),
         )
-    except Exception as exc:  # pragma: no cover - depends on external cache
+    except Exception as exc:  # noqa: BLE001 # pragma: no cover - any cache problem -> skip
         pytest.skip(f"Dataset cache unavailable: {exc}")
 
     rows: list[dict] = []
@@ -138,23 +140,19 @@ def _retry_search(
 
 
 def _cleanup_resources(app: PersonaApplication, uuids: list[str]) -> None:
-    try:
+    with contextlib.suppress(Exception):  # cleanup is best effort
         app.qdrant.transport.request(
             RequestDescriptor("DELETE", f"/collections/{app.qdrant.collection}")
         )
-    except Exception:  # pragma: no cover - cleanup best effort
-        pass
 
-    try:
+    with contextlib.suppress(Exception):  # cleanup is best effort
         app.elasticsearch.transport.request(
             RequestDescriptor("DELETE", f"/{app.elasticsearch.index}")
         )
-    except Exception:  # pragma: no cover - cleanup best effort
-        pass
 
     if not uuids:
         return
-    try:
+    with contextlib.suppress(Exception):  # cleanup is best effort
         app.neo4j.transport.request(
             RequestDescriptor(
                 method="POST",
@@ -169,8 +167,6 @@ def _cleanup_resources(app: PersonaApplication, uuids: list[str]) -> None:
                 },
             )
         )
-    except Exception:  # pragma: no cover - cleanup best effort
-        pass
 
 
 def test_index_and_search_with_emulators(tmp_path: Path) -> None:

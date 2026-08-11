@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import base64
 import asyncio
+import base64
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 import aiohttp
+
 from .persona_fields import PERSONA_TEXT_FIELDS
 
 
@@ -59,27 +61,27 @@ class SimpleHttpTransport:
         url = f"http://{self.host}:{self.port}{path}"
 
         timeout = aiohttp.ClientTimeout(total=self.timeout)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.request(
+        async with (
+            aiohttp.ClientSession(timeout=timeout) as session,
+            session.request(
                 descriptor.method.upper(),
                 url,
                 data=data,
                 headers=headers,
-            ) as response:
-                text = await response.text()
-                if not (200 <= response.status < 300):
-                    raise RuntimeError(
-                        f"HTTP {response.status} {response.reason}: {text}"
-                    )
-                if not text:
-                    return {}
+            ) as response,
+        ):
+            text = await response.text()
+            if not (200 <= response.status < 300):
+                raise RuntimeError(f"HTTP {response.status} {response.reason}: {text}")
+            if not text:
+                return {}
+            try:
+                return await response.json()
+            except aiohttp.ContentTypeError:
                 try:
-                    return await response.json()
-                except aiohttp.ContentTypeError:
-                    try:
-                        return json.loads(text)
-                    except json.JSONDecodeError:
-                        return {"raw": text}
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    return {"raw": text}
 
     def request(self, descriptor: RequestDescriptor) -> dict[str, Any]:
         loop = asyncio.new_event_loop()
@@ -96,7 +98,7 @@ class SimpleHttpTransport:
         if not auth:
             return None
         user, password = auth
-        token = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+        token = base64.b64encode(f"{user}:{password}".encode()).decode("ascii")
         return f"Basic {token}"
 
 

@@ -4,7 +4,6 @@ import argparse
 from pathlib import Path
 
 from datasets import Dataset, DownloadConfig, load_dataset
-
 from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
 from search_ja_persona.repository import PersonaRepository
 
@@ -32,7 +31,7 @@ def main(limit: int = 1000) -> None:
             download_config=config,
             download_mode="reuse_cache_if_exists",
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - fall back to the cached arrow shard
         arrow_path = Path(
             "~/.cache/huggingface/datasets/nvidia___nemotron-personas-japan/default/0.0.0/1f0fd597e28766ac8a4a8fc1f56e46286505eee8/nemotron-personas-japan-train-00000-of-00007.arrow"
         ).expanduser()
