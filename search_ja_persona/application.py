@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 from .embeddings import (
     EMBEDDER_PRESETS,
@@ -11,10 +12,10 @@ from .embeddings import (
     SentenceTransformerEmbedder,
 )
 from .indexer import PersonaIndexer
+from .persona_fields import PERSONA_TEXT_FIELDS
 from .repository import PersonaRepository
 from .search import PersonaSearchService
 from .services import ElasticsearchService, Neo4jService, QdrantService
-from .persona_fields import PERSONA_TEXT_FIELDS
 
 
 @dataclass(frozen=True)

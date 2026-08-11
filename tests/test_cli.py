@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
-
-import json
 from rich.console import Console
 
-import search_ja_persona.cli as cli
-from search_ja_persona.repository import PersonaRepository
-from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
+from search_ja_persona import cli
 from search_ja_persona.cli import INDEX_METADATA_SCHEMA_VERSION
+from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
+from search_ja_persona.repository import PersonaRepository
 
 
 def _write_sample_dataset(path: Path) -> None:

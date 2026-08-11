@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Protocol
+from typing import Any, Protocol
 
 
 class Embedder(Protocol):
@@ -153,12 +154,12 @@ class FastEmbedder:
 HashedNgramVectorizer = HashedNgramEmbedder
 
 __all__ = [
-    "Embedder",
-    "HashedNgramEmbedder",
-    "FastEmbedder",
-    "SentenceTransformerEmbedder",
-    "HashedNgramVectorizer",
     "EMBEDDER_PRESETS",
+    "Embedder",
+    "FastEmbedder",
+    "HashedNgramEmbedder",
+    "HashedNgramVectorizer",
+    "SentenceTransformerEmbedder",
 ]
 
 EMBEDDER_PRESETS = {

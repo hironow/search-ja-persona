@@ -103,12 +103,12 @@ Each persona record contains:
 ```python
 {
     "uuid": "...",
-    "score": 0.87,           # cosine similarity (Qdrant) or ES _score
-    "text": "...",           # aggregated persona text
+    "score": 0.87,  # cosine similarity (Qdrant) or ES _score
+    "text": "...",  # aggregated persona text
     "prefecture": "...",
     "region": "...",
-    "context": {...},        # Neo4j graph relationships
-    "persona_fields": {...}  # per-field breakdown
+    "context": {...},  # Neo4j graph relationships
+    "persona_fields": {...},  # per-field breakdown
 }
 ```
 

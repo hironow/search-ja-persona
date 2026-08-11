@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
 
 import pyarrow.parquet as pq
 
@@ -56,5 +56,5 @@ def _count_rows(path: Path) -> int | None:
         if metadata is None:
             return None
         return metadata.num_rows
-    except Exception:  # pragma: no cover - defensive, e.g., corrupted file
+    except Exception:  # noqa: BLE001 # pragma: no cover - defensive, e.g., corrupted file
         return None
