@@ -341,7 +341,9 @@ def test_cli_index_fast_embedder(
 
     assert recorded["fast_config"] == {
         "model_name": "intfloat/multilingual-e5-small",
-        "cache_dir": "/tmp/cache",
+        # The CLI round-trips the argument through pathlib, so the separator
+        # is platform-native (e.g. "\\tmp\\cache" on Windows).
+        "cache_dir": str(Path("/tmp/cache")),
         "normalize": False,
     }
     assert recorded["indexer_init"]["embedder"].dimension == 512
@@ -368,7 +370,8 @@ def test_cli_index_prompt_reset_decline(
                 },
                 "schema_version": INDEX_METADATA_SCHEMA_VERSION,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
     recorded: dict[str, Any] = {}
@@ -439,7 +442,8 @@ def test_cli_index_prompt_reset_accept(
                 },
                 "schema_version": INDEX_METADATA_SCHEMA_VERSION,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
     recorded: dict[str, Any] = {}
