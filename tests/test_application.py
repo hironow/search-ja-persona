@@ -219,3 +219,16 @@ def test_persona_application_uses_fast_embedder(
     }
     assert recorded["indexer_init"]["embedder"].dimension == 256
     assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS
+
+
+def test_application_config_defaults_to_ipv4_loopback() -> None:
+    from search_ja_persona.application import ApplicationConfig
+
+    # "localhost" resolves to ::1 first on Windows, where the emulators'
+    # 127.0.0.1-only port bindings leave each IPv6 connect stalling before
+    # falling back; pin the IPv4 loopback address explicitly.
+    config = ApplicationConfig()
+
+    assert config.qdrant_host == "127.0.0.1"
+    assert config.es_host == "127.0.0.1"
+    assert config.neo4j_host == "127.0.0.1"

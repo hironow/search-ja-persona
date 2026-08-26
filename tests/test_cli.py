@@ -525,3 +525,13 @@ def test_cli_clear_emulators(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(recorded.get("services", [])) == 3
     output = test_console.export_text()
     assert "Local emulator stores cleared." in output
+
+
+def test_cli_parser_defaults_to_ipv4_loopback() -> None:
+    parser = cli._build_parser()
+
+    for argv in (["index", "--dataset", "x.parquet"], ["search", "--query", "q"]):
+        args = parser.parse_args(argv)
+        assert args.qdrant_host == "127.0.0.1"
+        assert args.es_host == "127.0.0.1"
+        assert args.neo4j_host == "127.0.0.1"
