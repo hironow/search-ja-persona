@@ -50,6 +50,7 @@ Each search result exposes a `score` field:
 - Python 3.12+
 - [`uv`](https://github.com/astral-sh/uv) for dependency management (recommended)
 - Local emulators running: `cd emulator && docker compose up -d` (Qdrant, Elasticsearch, Neo4j). See [`emulator/README.md`](emulator/README.md).
+- On Windows: `just` recipes run under `bash`, so Git for Windows' `bash.exe` must be on `PATH` (it lives in `C:\Program Files\Git\bin`; the default installer only adds `Git\cmd`). Docker Desktop provides the emulator engine.
 
 ## Getting the Dataset
 
