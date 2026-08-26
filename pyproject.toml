@@ -29,6 +29,19 @@ dev = [
     "ruff>=0.16.2",
 ]
 
+[tool.uv]
+# Wait out newly published releases before resolving them (supply-chain
+# cooldown; matches the machine-level hardening policy).
+exclude-newer = "7 days"
+# Fail at lock time (not at a teammate's install time) if an upgrade picks a
+# version without wheels for any platform we support.
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
 [tool.pytest.ini_options]
 norecursedirs = ["emulator"]
 markers = [
