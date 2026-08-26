@@ -203,7 +203,7 @@ def _load_index_metadata() -> dict | None:
     if not METADATA_PATH.exists():
         return None
     try:
-        return json.loads(METADATA_PATH.read_text())
+        return json.loads(METADATA_PATH.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return None
 
@@ -275,7 +275,9 @@ def _write_index_metadata(
         "schema_version": INDEX_METADATA_SCHEMA_VERSION,
     }
     METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    METADATA_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _collect_index_stats(
