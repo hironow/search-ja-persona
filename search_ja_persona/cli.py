@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,7 +35,21 @@ PERSONA_FIELD_SET = set(PERSONA_TEXT_FIELDS)
 INDEX_METADATA_SCHEMA_VERSION = "2025-03-05"
 
 
+def _force_utf8_stdio() -> None:
+    # Windows defaults stdout/stderr to the ANSI code page (cp932 on Japanese
+    # systems): redirected JSON output becomes mojibake and personas containing
+    # characters outside that code page raise UnicodeEncodeError on render.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8")
+            except (OSError, ValueError):  # pragma: no cover - defensive
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _force_utf8_stdio()
     parser = _build_parser()
     args = parser.parse_args(argv)
 
@@ -204,7 +219,9 @@ def _load_index_metadata() -> dict | None:
         return None
     try:
         return json.loads(METADATA_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # UnicodeDecodeError covers metadata written by older CLI versions
+        # under a non-UTF-8 locale (e.g. cp932 on Japanese Windows).
         return None
 
 

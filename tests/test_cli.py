@@ -527,6 +527,18 @@ def test_cli_clear_emulators(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Local emulator stores cleared." in output
 
 
+def test_load_index_metadata_tolerates_undecodable_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    metadata_path = tmp_path / "metadata.json"
+    # Simulate a metadata file written by an older CLI under a non-UTF-8
+    # locale (e.g. cp932): the bytes are not valid UTF-8.
+    metadata_path.write_bytes('{"embedder": {"preset": "東京"}}'.encode("cp932"))
+    monkeypatch.setattr(cli, "METADATA_PATH", metadata_path)
+
+    assert cli._load_index_metadata() is None
+
+
 def test_cli_parser_defaults_to_ipv4_loopback() -> None:
     parser = cli._build_parser()
 
