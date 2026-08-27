@@ -73,27 +73,34 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   vs 0.65 unfiltered, with tier means untouched (basic 0.900 / hard
   0.433). See `docs/research/2026-08-27-prefecture-filter-results.md`.
 
+- **RRF fusion (branch `feat/rrf-fusion`)**: results are now ranked by
+  weighted Reciprocal Rank Fusion (K=60, production 1:1) instead of
+  vector-fills-then-truncate; fetch depth max(limit, min(3*limit, 30));
+  Neo4j context only for the returned top-limit. Pre-registered A/B on
+  the live 1M chose unweighted: basic 0.900→**0.950**, hard
+  0.433→**0.450**, overall 0.700, recall 1.00/1.00, eval wall time
+  11.3s→**9.0s**. Filtered geo reads 0.950 vs 1.000 — the changed hit is
+  a documented predicate false negative (Okinawa sea-leisure persona
+  phrased as 泳ぎ/潮風), disclosed as a deviation from the pre-registered
+  constraint. Side products: `--check-thresholds` (machine-enforced
+  intent bars) and `just check`. See
+  `docs/research/2026-08-27-rrf-fusion-results.md`.
+
+- **#46 metadata fail-closed + repair**: `.cache/index_metadata.json`
+  went missing (cause untraceable); search silently fell back to
+  hashed-256 and an index rerun walked into a destructive reset prompt.
+  Both paths now fail closed and a read-only `repair-metadata`
+  subcommand re-records metadata after verifying the collection
+  dimension and stored persona fields. Live file restored.
+- **#47 Neo4j test isolation**: the integration test used to index the
+  first 5 REAL dataset rows and DETACH-DELETE them from the shared live
+  graph on every run (found at 999,995; restored to 1,000,000 via
+  idempotent reindex). Rows are now re-keyed with synthetic uuids.
+
 ## In Progress
-- PR for `fix/missing-index-metadata` (this branch) — merge on green per
-  the session's per-PR agreement. `.cache/index_metadata.json` had gone
-  missing (cause untraceable; the file is CWD-relative and unlinked by
-  reset/clear paths). Search without `--embedder` used to fall back to
-  hashed-256 and die with an opaque Qdrant dimension error; worse, an
-  index rerun reconstructed partial metadata that always failed
-  `_should_reset`'s schema check, putting a destructive reset prompt in
-  front of the healthy 1M collection. Both paths now fail closed, and a
-  read-only `repair-metadata` subcommand re-records metadata after
-  verifying collection dimension + stored persona fields. Live metadata
-  restored via the new command (1,000,000 points, dim 768); bare CLI
-  search works again.
-- **Neo4j collateral found and healed**: the pre-existing integration
-  test `test_index_and_search_with_emulators` indexes the first 5 REAL
-  dataset rows into isolated Qdrant/ES resources but the SHARED Neo4j
-  database, and its cleanup DETACH-DELETEs those uuids — every
-  `just integration` run silently removed 5 real personas from the live
-  graph (found at 999,995). Restored to exactly 1,000,000 via idempotent
-  reindex of shard-0 rows 0-4. The test still needs fixing (synthetic
-  uuids, or skip the Neo4j cleanup for real-uuid rows).
+- PR for `feat/rrf-fusion` — merge on green per the session's per-PR
+  agreement (the merge also ratifies the disclosed filtered-geo
+  deviation).
 
 ## Next Actions
 1. Human decisions queued by the hardening research note: (a) new hard-tier
@@ -103,12 +110,11 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
    the bar; (c) ordering of the improvement candidates below.
 2. Improvement candidates (each its own work unit, evidence in
    `docs/research/2026-08-27-golden-set-hardening.md`): ~~prefecture
-   payload filter~~ (done — geo class solved, filtered mean 1.000) →
-   fusion redesign (keyword leg is effectively unused; BM25 alone beats
-   fused on the predicate metrics) → name-token exclusion at embed time
-   (needs ~50min reindex) → pooled human qrels.
-3. Fix the integration test's Neo4j collateral (see In Progress) — one
-   small `fix` PR.
+   payload filter~~ (done) → ~~fusion redesign~~ (done — RRF adopted) →
+   name-token exclusion at embed time (needs ~50min reindex) → pooled
+   human qrels. Also queued: golden-set maintenance (add 泳ぎ/潮風-class
+   vocabulary to the Okinawa predicate and re-baseline; fix the 3
+   degenerate basic predicates) as one re-baselining PR.
 4. Metadata robustness candidates (structural, separate work unit, from
    the plan review): identity-keyed metadata (record/verify Qdrant
    endpoint+collection, per-identity files instead of one global
