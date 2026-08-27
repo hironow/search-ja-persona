@@ -326,7 +326,7 @@ def test_build_report_defaults_to_empty_filtered_section() -> None:
 def _healthy_report(**overrides: object) -> dict:
     report: dict = {
         "golden_mean_precision": 0.9,
-        "golden_mean_precision_by_tier": {"basic": 0.9, "hard": 0.43},
+        "golden_mean_precision_by_tier": {"basic": 0.9, "hard": 0.65},
         "filtered": [{"query": "q"}],
         "filtered_mean_precision": 1.0,
         "self_retrieval": {"samples": 100, "recall_at_1": 1.0, "recall_at_10": 1.0},
@@ -352,9 +352,14 @@ def test_check_thresholds_accepts_the_amended_self_retrieval_bar() -> None:
 @pytest.mark.parametrize(
     ("overrides", "fragment"),
     [
-        ({"golden_mean_precision_by_tier": {"basic": 0.84, "hard": 0.43}}, "basic"),
-        ({"golden_mean_precision_by_tier": {"hard": 0.43}}, "basic"),
+        ({"golden_mean_precision_by_tier": {"basic": 0.84, "hard": 0.65}}, "basic"),
+        ({"golden_mean_precision_by_tier": {"hard": 0.65}}, "basic"),
         ({"golden_mean_precision_by_tier": {"basic": 0.9}}, "hard"),
+        (
+            {"golden_mean_precision_by_tier": {"basic": 0.9, "hard": 0.54}},
+            "hard",
+        ),
+        ({"filtered_mean_precision": 0.85}, "filtered"),
         (
             {
                 "self_retrieval": {

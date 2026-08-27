@@ -187,8 +187,8 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"THRESHOLD FAIL: {failure}")
             raise SystemExit(1)
         print(
-            "thresholds OK (basic >= 0.85, self-retrieval recall@1 >= 0.90, "
-            "recall@10 >= 0.99)"
+            "thresholds OK (basic >= 0.85, hard >= 0.55, filtered >= 0.90, "
+            "recall@1 >= 0.90, recall@10 >= 0.99)"
         )
 
 
