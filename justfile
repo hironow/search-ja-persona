@@ -67,6 +67,11 @@ qa: qa-index qa-search
 eval *flags:
     uv run --frozen python -m scripts.evaluate_search {{flags}}
 
+# Name-lookup benchmark: exact full-name queries on a fixed 40-name set
+# (the keyword leg owes this since embeddings exclude names)
+eval-names:
+    uv run --frozen python -m scripts.evaluate_name_lookup
+
 # Golden-set diagnostic: score each predicate against fused / keyword-only /
 # random rankings to verify the eval measures retrieval, not the predicate
 diagnose:
