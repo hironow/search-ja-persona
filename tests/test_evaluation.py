@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from search_ja_persona.evaluation import (
+    build_report,
+    load_golden_queries,
     matches_expectation,
     precision_at_k,
     recall_at_k,
+    summarize_golden,
 )
 
 
@@ -27,6 +35,22 @@ def test_matches_expectation_prefecture_and_region() -> None:
     expect_region = {"region": "近畿地方"}
     assert matches_expectation(_result(region="近畿地方"), expect_region)
     assert not matches_expectation(_result(region="関東地方"), expect_region)
+
+
+def test_matches_expectation_text_all_requires_every_group() -> None:
+    expect = {"text_all": [["看護"], ["子育て", "育児"]]}
+
+    assert matches_expectation(_result(text="病棟で看護しながら子育て中"), expect)
+    assert matches_expectation(_result(text="看護師として働き育児にも奮闘"), expect)
+    assert not matches_expectation(_result(text="看護一筋のベテラン"), expect)
+    assert not matches_expectation(_result(text="子育てに専念しています"), expect)
+
+
+def test_matches_expectation_text_all_accepts_bare_string_group() -> None:
+    expect = {"text_all": ["温泉", "旅行"]}
+
+    assert matches_expectation(_result(text="温泉旅行が毎年の楽しみ"), expect)
+    assert not matches_expectation(_result(text="温泉が好き"), expect)
 
 
 def test_matches_expectation_requires_all_criteria() -> None:
@@ -67,3 +91,152 @@ def test_recall_at_k_normalizes_uuid_forms() -> None:
     assert recall_at_k(ranked, "9ab67434-675a-46f9-8cab-22f779e8550e", k=2)
     assert not recall_at_k(ranked, "9ab67434675a46f98cab22f779e8550e", k=1)
     assert not recall_at_k(ranked, "ffffffffffffffffffffffffffffffff", k=2)
+
+
+def _golden_entry(
+    query: str = "q-basic",
+    tier: str = "basic",
+    expect: dict | None = None,
+) -> dict:
+    return {
+        "query": query,
+        "tier": tier,
+        "expect": expect if expect is not None else {"text_any": ["介護"]},
+    }
+
+
+def _write_golden(tmp_path: Path, entries: list[dict]) -> Path:
+    path = tmp_path / "golden.json"
+    path.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
+def test_load_golden_queries_returns_entries_with_tiers(tmp_path: Path) -> None:
+    path = _write_golden(
+        tmp_path,
+        [
+            _golden_entry(),
+            _golden_entry(
+                query="q-hard",
+                tier="hard",
+                expect={
+                    "text_all": [["看護"], ["子育て", "育児"]],
+                    "prefecture": "大阪府",
+                },
+            ),
+        ],
+    )
+
+    entries = load_golden_queries(path)
+
+    assert [entry["tier"] for entry in entries] == ["basic", "hard"]
+    assert entries[0]["query"] == "q-basic"
+
+
+@pytest.mark.parametrize(
+    ("bad_entry", "message"),
+    [
+        (_golden_entry(expect={}), "empty expect"),
+        (_golden_entry(expect={"text_any": []}), "empty text_any"),
+        (_golden_entry(expect={"text_any": ["介護", ""]}), "empty keyword"),
+        (_golden_entry(expect={"text_all": []}), "empty text_all"),
+        (_golden_entry(expect={"text_all": [[]]}), "empty text_all group"),
+        (_golden_entry(expect={"text_none": ["介護"]}), "unknown expect key"),
+        (_golden_entry(expect={"prefecture": ""}), "empty prefecture"),
+        (_golden_entry(tier="expert"), "unknown tier"),
+        ({"query": "q-basic", "expect": {"text_any": ["介護"]}}, "missing tier"),
+        (_golden_entry(query=""), "empty query"),
+        (_golden_entry(query="q-hard"), "duplicate query"),
+    ],
+)
+def test_load_golden_queries_rejects_invalid_entries(
+    tmp_path: Path, bad_entry: dict, message: str
+) -> None:
+    path = _write_golden(
+        tmp_path,
+        [_golden_entry(query="q-hard", tier="hard"), bad_entry],
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_golden_queries(path)
+
+
+def test_load_golden_queries_requires_both_tiers(tmp_path: Path) -> None:
+    path = _write_golden(tmp_path, [_golden_entry()])
+
+    with pytest.raises(ValueError, match="no hard entries"):
+        load_golden_queries(path)
+
+
+def test_summarize_golden_keeps_basic_mean_and_adds_tier_means() -> None:
+    rows = [
+        {"query": "a", "tier": "basic", "precision_at_k": 1.0},
+        {"query": "b", "tier": "basic", "precision_at_k": 0.5},
+        {"query": "c", "tier": "hard", "precision_at_k": 0.25},
+    ]
+
+    summary = summarize_golden(rows)
+
+    assert summary["golden_mean_precision"] == pytest.approx(0.75)
+    assert summary["golden_overall_mean_precision"] == pytest.approx(1.75 / 3)
+    assert summary["golden_mean_precision_by_tier"] == {
+        "basic": pytest.approx(0.75),
+        "hard": pytest.approx(0.25),
+    }
+
+
+def test_summarize_golden_handles_empty_rows() -> None:
+    summary = summarize_golden([])
+
+    assert summary["golden_mean_precision"] == 0.0
+    assert summary["golden_overall_mean_precision"] == 0.0
+    assert summary["golden_mean_precision_by_tier"] == {}
+
+
+def test_build_report_preserves_bar_metric_and_tier_rows() -> None:
+    rows = [
+        {"query": "a", "tier": "basic", "precision_at_k": 1.0},
+        {"query": "b", "tier": "basic", "precision_at_k": 0.5},
+        {"query": "c", "tier": "hard", "precision_at_k": 0.25},
+    ]
+
+    report = build_report(
+        per_query=rows,
+        self_retrieval={"samples": 2, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        embedder="ruri-v3-310m",
+        k=5,
+        generated_at="2026-08-27T00:00:00+00:00",
+        elapsed_seconds=1.26,
+    )
+
+    assert report["report_schema_version"] == 2
+    assert report["golden_mean_precision"] == pytest.approx(0.75)
+    assert report["golden_overall_mean_precision"] == pytest.approx(0.5833)
+    assert report["golden_mean_precision_by_tier"] == {"basic": 0.75, "hard": 0.25}
+    assert [row["tier"] for row in report["golden_queries"]] == [
+        "basic",
+        "basic",
+        "hard",
+    ]
+    basic_scores = [
+        row["precision_at_k"]
+        for row in report["golden_queries"]
+        if row["tier"] == "basic"
+    ]
+    assert report["golden_mean_precision"] == pytest.approx(
+        sum(basic_scores) / len(basic_scores)
+    )
+    assert report["elapsed_seconds"] == 1.3
+    assert report["embedder"] == "ruri-v3-310m"
+    assert report["k"] == 5
+    assert report["self_retrieval"]["samples"] == 2
+
+
+def test_shipped_golden_queries_are_valid() -> None:
+    path = Path(__file__).resolve().parents[1] / "scripts" / "golden_queries.json"
+
+    entries = load_golden_queries(path)
+
+    tiers = {entry["tier"] for entry in entries}
+    assert tiers == {"basic", "hard"}
+    assert len(entries) >= 24
