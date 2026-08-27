@@ -51,10 +51,13 @@ class FakeElasticsearch:
 
 class FakeNeo4j:
     def __init__(self) -> None:
-        self.personas: list[dict[str, Any]] = []
+        self.batches: list[list[dict[str, Any]]] = []
 
     def merge_persona(self, persona) -> None:
-        self.personas.append(persona)
+        raise AssertionError("indexer must batch-merge via merge_personas")
+
+    def merge_personas(self, personas) -> None:
+        self.batches.append(list(personas))
 
 
 def _persona(uuid: str, text: str) -> dict[str, Any]:
@@ -97,4 +100,5 @@ def test_indexer_encodes_each_batch_in_one_call() -> None:
         "ペルソナ1",
         "ペルソナ2",
     ]
-    assert len(neo4j.personas) == 3
+    assert [len(batch) for batch in neo4j.batches] == [2, 1]
+    assert [persona["uuid"] for persona in neo4j.batches[0]] == ["id-0", "id-1"]

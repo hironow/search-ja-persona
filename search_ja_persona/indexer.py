@@ -55,8 +55,7 @@ class PersonaIndexer:
 
         self.qdrant.upsert_points(qdrant_points)
         self.elasticsearch.bulk_index(es_documents)
-        for persona in batch:
-            self.neo4j.merge_persona(persona)
+        self.neo4j.merge_personas(batch)
 
     def _build_qdrant_point(
         self,
