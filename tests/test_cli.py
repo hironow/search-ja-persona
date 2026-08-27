@@ -728,6 +728,8 @@ def test_cli_search_passes_prefecture_filter(
             "json",
             "--prefecture",
             "北海道",
+            "--embedder",
+            "hashed",
         ]
     )
 
