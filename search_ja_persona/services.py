@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -264,27 +264,40 @@ class Neo4jService:
         self.transport = transport or SimpleHttpTransport(host, port, auth=auth)
 
     def merge_persona(self, persona: dict[str, Any]) -> dict[str, Any]:
+        return self.merge_personas([persona])
+
+    def merge_personas(self, personas: Sequence[dict[str, Any]]) -> dict[str, Any]:
+        if not personas:
+            return {}
+        # One UNWIND statement per batch: a transaction per persona makes the
+        # HTTP round-trip the ingest bottleneck.
         statement = (
-            "MERGE (p:Persona {uuid: $uuid}) "
-            "SET p.text = $text "
-            "WITH p, $prefecture AS prefecture "
-            "FOREACH (_ IN CASE WHEN prefecture IS NOT NULL AND prefecture <> '' THEN [1] ELSE [] END | "
-            "  SET p.prefecture = prefecture "
-            "  MERGE (pref:Prefecture {name: prefecture}) "
+            "UNWIND $personas AS persona "
+            "MERGE (p:Persona {uuid: persona.uuid}) "
+            "SET p.text = persona.text "
+            "WITH p, persona "
+            "FOREACH (_ IN CASE WHEN persona.prefecture IS NOT NULL AND persona.prefecture <> '' THEN [1] ELSE [] END | "
+            "  SET p.prefecture = persona.prefecture "
+            "  MERGE (pref:Prefecture {name: persona.prefecture}) "
             "  MERGE (p)-[:LIVES_IN]->(pref) "
             ") "
-            "WITH p, $region AS region "
-            "FOREACH (_ IN CASE WHEN region IS NOT NULL AND region <> '' THEN [1] ELSE [] END | "
-            "  MERGE (r:Region {name: region}) "
+            "WITH p, persona "
+            "FOREACH (_ IN CASE WHEN persona.region IS NOT NULL AND persona.region <> '' THEN [1] ELSE [] END | "
+            "  MERGE (r:Region {name: persona.region}) "
             "  MERGE (p)-[:LOCATED_IN]->(r) "
             ") "
-            "RETURN p.uuid"
+            "RETURN count(p)"
         )
         parameters = {
-            "uuid": persona.get("uuid"),
-            "text": persona.get("persona"),
-            "prefecture": persona.get("prefecture"),
-            "region": persona.get("region"),
+            "personas": [
+                {
+                    "uuid": persona.get("uuid"),
+                    "text": persona.get("persona"),
+                    "prefecture": persona.get("prefecture"),
+                    "region": persona.get("region"),
+                }
+                for persona in personas
+            ]
         }
         request = RequestDescriptor(
             method="POST",

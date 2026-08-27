@@ -232,3 +232,56 @@ def test_elasticsearch_ensure_index_handles_exists() -> None:
 
     assert response["status"] == "exists"
     assert transport.requests
+
+
+def test_neo4j_merge_personas_sends_one_batched_statement() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"results": []})
+
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+    result = service.merge_personas(
+        [
+            {
+                "uuid": "1",
+                "persona": "東京の介護リーダー",
+                "prefecture": "東京都",
+                "region": "関東地方",
+            },
+            {
+                "uuid": "2",
+                "persona": "大阪の菓子職人",
+                "prefecture": None,
+                "region": "",
+            },
+        ]
+    )
+
+    assert len(transport.requests) == 1
+    descriptor = transport.requests[0]
+    assert descriptor.path == "/db/neo4j/tx/commit"
+    statements = descriptor.body["statements"]
+    assert len(statements) == 1
+    assert "UNWIND $personas" in statements[0]["statement"]
+    assert statements[0]["parameters"]["personas"] == [
+        {
+            "uuid": "1",
+            "text": "東京の介護リーダー",
+            "prefecture": "東京都",
+            "region": "関東地方",
+        },
+        {
+            "uuid": "2",
+            "text": "大阪の菓子職人",
+            "prefecture": None,
+            "region": "",
+        },
+    ]
+    assert result == {"results": []}
+
+
+def test_neo4j_merge_personas_skips_empty_batch() -> None:
+    transport = FakeTransport()
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    assert service.merge_personas([]) == {}
+    assert transport.requests == []
