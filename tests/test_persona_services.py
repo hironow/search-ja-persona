@@ -93,6 +93,7 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
     fake_transport.enqueue_response(
         {"acknowledged": True}
     )  # Elasticsearch index create
+    fake_transport.enqueue_response({"results": []})  # Neo4j ensure constraints
     fake_transport.enqueue_response({"result": "ok"})  # Qdrant upsert
     fake_transport.enqueue_response({"errors": False})  # Elasticsearch bulk
     fake_transport.enqueue_response({"results": []})  # Neo4j cypher
@@ -358,3 +359,25 @@ def test_elasticsearch_bulk_index_raises_on_item_errors() -> None:
                 {"uuid": "2", "text": "大阪の菓子職人"},
             ]
         )
+
+
+def test_neo4j_ensure_constraints_creates_uniqueness_constraints() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"results": [], "errors": []})
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    service.ensure_constraints()
+
+    assert len(transport.requests) == 1
+    descriptor = transport.requests[0]
+    assert descriptor.path == "/db/neo4j/tx/commit"
+    statements = [entry["statement"] for entry in descriptor.body["statements"]]
+    assert len(statements) == 3
+    for statement in statements:
+        assert "CREATE CONSTRAINT" in statement
+        assert "IF NOT EXISTS" in statement
+        assert "IS UNIQUE" in statement
+    joined = " ".join(statements)
+    assert "(p:Persona) REQUIRE p.uuid" in joined
+    assert "(pref:Prefecture) REQUIRE pref.name" in joined
+    assert "(r:Region) REQUIRE r.name" in joined

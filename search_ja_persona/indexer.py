@@ -21,6 +21,7 @@ class PersonaIndexer:
     def index(self, *, batch_size: int = 64, limit: int | None = None) -> None:
         self.qdrant.ensure_collection()
         self.elasticsearch.ensure_index()
+        self.neo4j.ensure_constraints()
 
         batch: list[dict] = []
         processed = 0

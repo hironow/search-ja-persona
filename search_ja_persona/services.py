@@ -283,6 +283,37 @@ class Neo4jService:
         auth = (user, password)
         self.transport = transport or SimpleHttpTransport(host, port, auth=auth)
 
+    def ensure_constraints(self) -> dict[str, Any]:
+        # Uniqueness constraints back MERGE lookups with an index; without
+        # them every MERGE label-scans, which degrades to O(n^2) over a
+        # full-corpus ingest.
+        statements = [
+            {
+                "statement": (
+                    "CREATE CONSTRAINT persona_uuid IF NOT EXISTS "
+                    "FOR (p:Persona) REQUIRE p.uuid IS UNIQUE"
+                )
+            },
+            {
+                "statement": (
+                    "CREATE CONSTRAINT prefecture_name IF NOT EXISTS "
+                    "FOR (pref:Prefecture) REQUIRE pref.name IS UNIQUE"
+                )
+            },
+            {
+                "statement": (
+                    "CREATE CONSTRAINT region_name IF NOT EXISTS "
+                    "FOR (r:Region) REQUIRE r.name IS UNIQUE"
+                )
+            },
+        ]
+        request = RequestDescriptor(
+            method="POST",
+            path="/db/neo4j/tx/commit",
+            body={"statements": statements},
+        )
+        return self._raise_on_statement_errors(self.transport.request(request))
+
     def merge_persona(self, persona: dict[str, Any]) -> dict[str, Any]:
         return self.merge_personas([persona])
 
