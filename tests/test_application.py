@@ -61,7 +61,14 @@ def test_persona_application_orchestrates_services(
         def __init__(self, **kwargs: Any) -> None:
             recorded["search_service_init"] = kwargs
 
-        def search(self, query: str, limit: int, *, return_stats: bool = False):
+        def search(
+            self,
+            query: str,
+            limit: int,
+            *,
+            return_stats: bool = False,
+            prefecture: str | None = None,
+        ):
             recorded["search_call"] = {"query": query, "limit": limit}
             results = [{"uuid": "1"}]
             stats = {
@@ -265,3 +272,24 @@ def test_persona_application_passes_ruri_prefixes(
     assert recorded["kwargs"]["query_prefix"] == "検索クエリ: "
     assert recorded["kwargs"]["document_prefix"] == "検索文書: "
     assert recorded["kwargs"]["encode_batch_size"] == 16
+
+
+def test_application_search_passes_prefecture_filter() -> None:
+    from unittest.mock import Mock
+
+    from search_ja_persona.application import ApplicationConfig, PersonaApplication
+
+    search_service = Mock()
+    search_service.search.return_value = []
+    app = PersonaApplication(
+        config=ApplicationConfig(),
+        embedder=Mock(),
+        qdrant=Mock(),
+        elasticsearch=Mock(),
+        neo4j=Mock(),
+        search_service=search_service,
+    )
+
+    app.search("スキーが好き", limit=3, prefecture="北海道")
+
+    assert search_service.search.call_args.kwargs["prefecture"] == "北海道"

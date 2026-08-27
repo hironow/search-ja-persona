@@ -139,6 +139,35 @@ class QdrantService:
                 return {"status": "exists"}
             raise
 
+    def ensure_payload_index(self) -> dict[str, Any]:
+        """Idempotently create the keyword payload index on ``prefecture``.
+
+        Filtered vector search needs a payload index to stay HNSW-aware.
+        The current schema is checked first so an incompatible existing
+        index fails loudly instead of being silently accepted.
+        """
+
+        info = self.transport.request(
+            RequestDescriptor(method="GET", path=f"/collections/{self.collection}")
+        )
+        schema = info.get("result", {}).get("payload_schema", {})
+        existing = schema.get("prefecture")
+        if existing is not None:
+            data_type = existing.get("data_type")
+            if data_type != "keyword":
+                raise RuntimeError(
+                    f"prefecture payload index has type {data_type!r}, "
+                    "expected 'keyword'"
+                )
+            return {"status": "exists"}
+        return self.transport.request(
+            RequestDescriptor(
+                method="PUT",
+                path=f"/collections/{self.collection}/index?wait=true",
+                body={"field_name": "prefecture", "field_schema": "keyword"},
+            )
+        )
+
     def upsert_points(self, points: Iterable[dict[str, Any]]) -> dict[str, Any]:
         body = {"points": list(points)}
         request = RequestDescriptor(
@@ -154,6 +183,7 @@ class QdrantService:
         *,
         limit: int = 5,
         score_threshold: float | None = None,
+        prefecture: str | None = None,
     ) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "vector": vector,
@@ -162,6 +192,10 @@ class QdrantService:
         }
         if score_threshold is not None:
             payload["score_threshold"] = score_threshold
+        if prefecture is not None:
+            payload["filter"] = {
+                "must": [{"key": "prefecture", "match": {"value": prefecture}}]
+            }
         request = RequestDescriptor(
             method="POST",
             path=f"/collections/{self.collection}/points/search",
@@ -252,16 +286,25 @@ class ElasticsearchService:
             )
         return response
 
-    def search(self, query: str, *, limit: int = 5) -> dict[str, Any]:
-        body = {
-            "size": limit,
-            "query": {
-                "multi_match": {
-                    "query": query,
-                    "fields": ["text", "prefecture^0.5", "region^0.25"],
-                }
-            },
+    def search(
+        self, query: str, *, limit: int = 5, prefecture: str | None = None
+    ) -> dict[str, Any]:
+        match_query: dict[str, Any] = {
+            "multi_match": {
+                "query": query,
+                "fields": ["text", "prefecture^0.5", "region^0.25"],
+            }
         }
+        if prefecture is not None:
+            search_query: dict[str, Any] = {
+                "bool": {
+                    "must": [match_query],
+                    "filter": [{"term": {"prefecture": prefecture}}],
+                }
+            }
+        else:
+            search_query = match_query
+        body = {"size": limit, "query": search_query}
         request = RequestDescriptor(
             method="GET",
             path=f"/{self.index}/_search",
