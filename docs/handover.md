@@ -40,30 +40,50 @@ The full corpus is indexed and verified. PRs #35–#38 are squash-merged on
   for vector hits had been silently empty since the feature shipped; ids
   are now normalized at the fusion boundary (graph enrichment verified
   live).
-- **search-quality benchmark**: `just eval` measures golden-query
-  precision@5 (12 machine-checkable queries) and self-retrieval recall@k
-  (100 seeded personas). Baseline 2026-08-27: precision 0.900, recall@1 =
-  recall@10 = 1.00 — see
+- **#42/#43 search-quality benchmark + approved intent**: `just eval`
+  (golden precision@5 + self-retrieval recall@k) landed and the requester
+  ratified the quality bar in intent.md (basic golden mean ≥ 0.85,
+  recall@1 ≥ 0.99) — see
   `docs/research/2026-08-27-search-quality-baseline.md`.
+- **golden eval hardening (branch `feat/harden-golden-eval`)**: the golden
+  set graded too kindly (one predicate matched 98% of random personas).
+  Now tiered — 12 frozen "basic" queries (the bar metric) + 12 "hard"
+  (multi-aspect `text_all`, geo+theme, paraphrase), runtime-validated
+  (`load_golden_queries`), with `just diagnose` scoring every predicate
+  against fused / keyword-only / random rankings. Baseline: basic 0.900
+  (unchanged) | hard 0.433 | random base 0.047 | recall 1.00/1.00.
+  Headline finding: **person-name pollution** — vector search chases
+  names (福岡姓 → 福岡県クエリ, 「温泉 正次」氏 → 温泉クエリ 1 位) in
+  6 of 12 hard queries. Full analysis:
+  `docs/research/2026-08-27-golden-set-hardening.md`.
 
 **Index state (verified 2026-08-27):** Qdrant / Elasticsearch / Neo4j all
 hold exactly **1,000,000** personas (ground truth: 1,000,000 distinct uuids,
 0 nulls); 768-dim ruri-v3-310m vectors; random spot-checks consistent across
 parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
-51 passed / 1 skipped; CI (ubuntu + windows) green; open Dependabot alerts: 0.
+77 passed / 1 skipped; CI (ubuntu + windows) green; open Dependabot alerts: 0.
 
 ## In Progress
-Nothing in flight.
+- PR for `feat/harden-golden-eval` (tiered golden eval + diagnostics) —
+  merge on green per the session's per-PR agreement.
 
 ## Next Actions
-1. Human: ratify (or adjust) the proposed quality bar — golden mean
-   precision@5 ≥ 0.85, self-retrieval recall@1 ≥ 0.99 — and the intent.md
-   revision drafted in the 2026-08-27 session (agents must not edit
-   intent.md without the requester's decision).
-2. Improvement candidate from the baseline: location-constrained queries
-   are the weak class (沖縄 0.40) — residency belongs in a payload filter
-   (Qdrant prefecture filter), not the embedding.
-3. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
+1. Human decisions queued by the hardening research note: (a) new hard-tier
+   bar (proposed: hard mean precision@5 ≥ 0.35, baseline 0.433) as an
+   intent.md addition; (b) whether to fix the 3 degenerate basic predicates
+   (和食 random 0.980 / 茶道 0.495 / 登山 0.380) at the cost of re-basing
+   the bar; (c) ordering of the improvement candidates below.
+2. Improvement candidates (each its own work unit, evidence in
+   `docs/research/2026-08-27-golden-set-hardening.md`):
+   prefecture payload filter (geo class, no reindex) → fusion redesign
+   (keyword leg is effectively unused; BM25 alone beats fused on the
+   predicate metrics) → name-token exclusion at embed time (needs ~50min
+   reindex) → pooled human qrels.
+3. Tooling candidate (from the plan review): this repo has no `just check`
+   aggregate gate and no mypy/semgrep; the enforced gate today is
+   `just pre-commit` + `just test` (mirrors CI). Adding the full AGENTS.md
+   gate is a separate structural PR.
+4. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
    any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
    data and does not shrink automatically.
 
