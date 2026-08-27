@@ -9,13 +9,16 @@ class RecordingEmbedder:
     dimension = 4
 
     def __init__(self) -> None:
-        self.embed_many_calls: list[list[str]] = []
+        self.embed_documents_calls: list[list[str]] = []
 
     def embed(self, text: str) -> list[float]:
-        raise AssertionError("indexer must batch-encode via embed_many")
+        raise AssertionError("indexer must batch-encode via embed_documents")
 
     def embed_many(self, texts: list[str]) -> list[list[float]]:
-        self.embed_many_calls.append(list(texts))
+        raise AssertionError("indexer must embed via embed_documents")
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.embed_documents_calls.append(list(texts))
         return [[float(index)] * self.dimension for index, _ in enumerate(texts)]
 
 
@@ -52,6 +55,10 @@ class FakeElasticsearch:
 class FakeNeo4j:
     def __init__(self) -> None:
         self.batches: list[list[dict[str, Any]]] = []
+        self.constraints_ensured = 0
+
+    def ensure_constraints(self) -> None:
+        self.constraints_ensured += 1
 
     def merge_persona(self, persona) -> None:
         raise AssertionError("indexer must batch-merge via merge_personas")
@@ -83,7 +90,7 @@ def test_indexer_encodes_each_batch_in_one_call() -> None:
 
     indexer.index(batch_size=2)
 
-    assert embedder.embed_many_calls == [
+    assert embedder.embed_documents_calls == [
         ["ペルソナ0", "ペルソナ1"],
         ["ペルソナ2"],
     ]
@@ -102,3 +109,4 @@ def test_indexer_encodes_each_batch_in_one_call() -> None:
     ]
     assert [len(batch) for batch in neo4j.batches] == [2, 1]
     assert [persona["uuid"] for persona in neo4j.batches[0]] == ["id-0", "id-1"]
+    assert neo4j.constraints_ensured == 1

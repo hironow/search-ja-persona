@@ -48,6 +48,14 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
     behind HTTP 200) now raise RuntimeError with details. This is what
     silently dropped 5/1000 personas in the old per-item merge path;
     live-verified with a null-uuid merge.
+13. `feat(embeddings)` + `feat(search)` asymmetric retrieval API:
+    embed_query/embed_documents with per-preset prefixes (e5:
+    query:/passage:, Ruri: 検索クエリ:/検索文書:) and encode batch caps.
+    New recommended preset `ruri-v3-310m` (768 dims, Apache-2.0) per the
+    2026-08 model research: Ruri's tokenizer avoids the ~23% document
+    truncation multilingual-e5 suffers on this corpus. Live-verified:
+    1k reindex in 9s on the RTX 4090, eyeball relevance strong on 4/5
+    Japanese queries (the 5th lacks matching personas in the 1k sample).
 
 ## Next Actions
 1. After PR #35 merges: confirm the 5 Dependabot alerts auto-closed and the

@@ -8,12 +8,15 @@ from typing import Any, Protocol
 
 
 class Embedder(Protocol):
+    """Retrieval-facing surface: queries and documents embed asymmetrically
+    (models like e5 and Ruri expect distinct prefixes per side)."""
+
     @property
     def dimension(self) -> int: ...
 
-    def embed(self, text: str) -> list[float]: ...
+    def embed_query(self, text: str) -> list[float]: ...
 
-    def embed_many(self, texts: Sequence[str]) -> list[list[float]]: ...
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
 
 
 def _to_float_list(vector: Any) -> list[float]:
@@ -47,6 +50,12 @@ class HashedNgramEmbedder:
 
     def embed_many(self, texts: Sequence[str]) -> list[list[float]]:
         return [self.embed(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed(text)
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return self.embed_many(texts)
 
     def _generate_ngrams(self, text: str, n: int) -> Iterable[str]:
         if len(text) < n:
@@ -92,6 +101,9 @@ class SentenceTransformerEmbedder:
     model_name: str
     device: str | None = None
     normalize_embeddings: bool = True
+    query_prefix: str = ""
+    document_prefix: str = ""
+    encode_batch_size: int | None = None
 
     def __post_init__(self) -> None:
         self._model = _load_sentence_transformer(self.model_name, device=self.device)
@@ -117,13 +129,30 @@ class SentenceTransformerEmbedder:
         cleaned = [(text or "").strip() for text in texts]
         non_empty = [text for text in cleaned if text]
         if non_empty:
-            vectors = self._model.encode(
-                non_empty, normalize_embeddings=self.normalize_embeddings
-            )
+            encode_kwargs: dict[str, Any] = {
+                "normalize_embeddings": self.normalize_embeddings
+            }
+            if self.encode_batch_size is not None:
+                encode_kwargs["batch_size"] = self.encode_batch_size
+            vectors = self._model.encode(non_empty, **encode_kwargs)
             encoded = iter([_to_float_list(vector) for vector in vectors])
         else:
             encoded = iter([])
         return [next(encoded) if text else [0.0] * self._dimension for text in cleaned]
+
+    def embed_query(self, text: str) -> list[float]:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return [0.0] * self._dimension
+        return self.embed(f"{self.query_prefix}{cleaned}")
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return self.embed_many(
+            [
+                f"{self.document_prefix}{cleaned}" if cleaned else ""
+                for cleaned in ((text or "").strip() for text in texts)
+            ]
+        )
 
 
 @dataclass
@@ -131,6 +160,8 @@ class FastEmbedder:
     model_name: str
     cache_dir: str | None = None
     normalize_embeddings: bool = True
+    query_prefix: str = ""
+    document_prefix: str = ""
 
     def __post_init__(self) -> None:
         self._model = _load_fastembed_model(self.model_name, cache_dir=self.cache_dir)
@@ -165,6 +196,20 @@ class FastEmbedder:
             encoded = iter([])
         return [next(encoded) if text else [0.0] * self._dimension for text in cleaned]
 
+    def embed_query(self, text: str) -> list[float]:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return [0.0] * self._dimension
+        return self.embed(f"{self.query_prefix}{cleaned}")
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return self.embed_many(
+            [
+                f"{self.document_prefix}{cleaned}" if cleaned else ""
+                for cleaned in ((text or "").strip() for text in texts)
+            ]
+        )
+
 
 # Backwards compatibility alias for existing imports
 HashedNgramVectorizer = HashedNgramEmbedder
@@ -193,17 +238,41 @@ EMBEDDER_PRESETS = {
     "e5-small": {
         "type": "sentence",
         "model": "intfloat/multilingual-e5-small",
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
     },
     "e5-large": {
         "type": "sentence",
         "model": "intfloat/multilingual-e5-large",
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
     },
     "fast-e5-small": {
         "type": "fast",
         "model": "intfloat/multilingual-e5-small",
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
     },
     "fast-e5-large": {
         "type": "fast",
         "model": "intfloat/multilingual-e5-large",
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
+    },
+    # Ruri v3 (cl-nagoya): Japanese retrieval models; encode_batch_size per
+    # measured 4090 throughput sweet spots.
+    "ruri-v3-310m": {
+        "type": "sentence",
+        "model": "cl-nagoya/ruri-v3-310m",
+        "query_prefix": "検索クエリ: ",
+        "document_prefix": "検索文書: ",
+        "encode_batch_size": 16,
+    },
+    "ruri-v3-130m": {
+        "type": "sentence",
+        "model": "cl-nagoya/ruri-v3-130m",
+        "query_prefix": "検索クエリ: ",
+        "document_prefix": "検索文書: ",
+        "encode_batch_size": 32,
     },
 }

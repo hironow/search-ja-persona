@@ -233,7 +233,11 @@ def test_cli_index_sentence_embedder(
 
     class FakeSentenceEmbedder:
         def __init__(
-            self, model_name: str, device=None, normalize_embeddings: bool = True
+            self,
+            model_name: str,
+            device=None,
+            normalize_embeddings: bool = True,
+            **kwargs: Any,
         ) -> None:
             recorded["sentence_config"] = {
                 "model_name": model_name,
@@ -310,12 +314,19 @@ def test_cli_index_fast_embedder(
 
     class FakeFastEmbedder:
         def __init__(
-            self, model_name: str, cache_dir=None, normalize_embeddings: bool = True
+            self,
+            model_name: str,
+            cache_dir=None,
+            normalize_embeddings: bool = True,
+            query_prefix: str = "",
+            document_prefix: str = "",
         ) -> None:
             recorded["fast_config"] = {
                 "model_name": model_name,
                 "cache_dir": cache_dir,
                 "normalize": normalize_embeddings,
+                "query_prefix": query_prefix,
+                "document_prefix": document_prefix,
             }
             self.dimension = 512
 
@@ -345,6 +356,8 @@ def test_cli_index_fast_embedder(
         # is platform-native (e.g. "\\tmp\\cache" on Windows).
         "cache_dir": str(Path("/tmp/cache")),
         "normalize": False,
+        "query_prefix": "query: ",
+        "document_prefix": "passage: ",
     }
     assert recorded["indexer_init"]["embedder"].dimension == 512
     assert recorded["indexer_init"]["persona_fields"] == PERSONA_TEXT_FIELDS

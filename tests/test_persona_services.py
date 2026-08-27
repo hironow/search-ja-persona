@@ -93,6 +93,7 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
     fake_transport.enqueue_response(
         {"acknowledged": True}
     )  # Elasticsearch index create
+    fake_transport.enqueue_response({"results": []})  # Neo4j ensure constraints
     fake_transport.enqueue_response({"result": "ok"})  # Qdrant upsert
     fake_transport.enqueue_response({"errors": False})  # Elasticsearch bulk
     fake_transport.enqueue_response({"results": []})  # Neo4j cypher
@@ -358,3 +359,58 @@ def test_elasticsearch_bulk_index_raises_on_item_errors() -> None:
                 {"uuid": "2", "text": "大阪の菓子職人"},
             ]
         )
+
+
+def test_neo4j_ensure_constraints_creates_uniqueness_constraints() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"results": [], "errors": []})
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    service.ensure_constraints()
+
+    assert len(transport.requests) == 1
+    descriptor = transport.requests[0]
+    assert descriptor.path == "/db/neo4j/tx/commit"
+    statements = [entry["statement"] for entry in descriptor.body["statements"]]
+    assert len(statements) == 3
+    for statement in statements:
+        assert "CREATE CONSTRAINT" in statement
+        assert "IF NOT EXISTS" in statement
+        assert "IS UNIQUE" in statement
+    joined = " ".join(statements)
+    assert "(p:Persona) REQUIRE p.uuid" in joined
+    assert "(pref:Prefecture) REQUIRE pref.name" in joined
+    assert "(r:Region) REQUIRE r.name" in joined
+
+
+def test_search_service_embeds_query_with_query_semantics() -> None:
+    class RecordingEmbedder:
+        dimension = 4
+
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def embed_query(self, text: str) -> list[float]:
+            self.queries.append(text)
+            return [0.0] * self.dimension
+
+        def embed(self, text: str) -> list[float]:
+            raise AssertionError("search must embed via embed_query")
+
+    embedder = RecordingEmbedder()
+    qdrant = Mock()
+    qdrant.search.return_value = []
+    elastic = Mock()
+    elastic.search.return_value = {"hits": {"hits": []}}
+
+    service = PersonaSearchService(
+        embedder=embedder,
+        qdrant=qdrant,
+        elasticsearch=elastic,
+        neo4j=Mock(),
+        persona_fields=("persona",),
+    )
+
+    service.search("介護", limit=1)
+
+    assert embedder.queries == ["介護"]

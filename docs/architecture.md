@@ -64,20 +64,30 @@ The system supports multiple embedding backends through a common protocol:
 class Embedder(Protocol):
     @property
     def dimension(self) -> int: ...
-    def embed(self, text: str) -> list[float]: ...
+    def embed_query(self, text: str) -> list[float]: ...
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
 ```
+
+Queries and documents embed asymmetrically: retrieval models expect a
+side-specific prefix, declared per preset and applied automatically
+(search uses the query prefix, indexing the document prefix).
 
 Available presets:
 
-| Preset | Type | Model | Dimensions |
-|--------|------|-------|------------|
-| `hashed` | Hashed n-gram | N/A | 256 (configurable) |
-| `mini-lm` | SentenceTransformers | all-MiniLM-L6-v2 | 384 |
-| `mpnet` | SentenceTransformers | all-mpnet-base-v2 | 768 |
-| `e5-small` | SentenceTransformers | multilingual-e5-small | 384 |
-| `e5-large` | SentenceTransformers | multilingual-e5-large | 1024 |
-| `fast-e5-small` | FastEmbed (ONNX) | multilingual-e5-small | 384 |
-| `fast-e5-large` | FastEmbed (ONNX) | multilingual-e5-large | 1024 |
+| Preset | Type | Model | Dimensions | Prefixes (query / document) |
+|--------|------|-------|------------|------------------------------|
+| `hashed` | Hashed n-gram | N/A | 256 (configurable) | — |
+| `mini-lm` | SentenceTransformers | all-MiniLM-L6-v2 | 384 | — |
+| `mpnet` | SentenceTransformers | all-mpnet-base-v2 | 768 | — |
+| `e5-small` | SentenceTransformers | multilingual-e5-small | 384 | `query: ` / `passage: ` |
+| `e5-large` | SentenceTransformers | multilingual-e5-large | 1024 | `query: ` / `passage: ` |
+| `fast-e5-small` | FastEmbed (ONNX) | multilingual-e5-small | 384 | `query: ` / `passage: ` |
+| `fast-e5-large` | FastEmbed (ONNX) | multilingual-e5-large | 1024 | `query: ` / `passage: ` |
+| `ruri-v3-310m` | SentenceTransformers | cl-nagoya/ruri-v3-310m | 768 | `検索クエリ: ` / `検索文書: ` |
+| `ruri-v3-130m` | SentenceTransformers | cl-nagoya/ruri-v3-130m | 512 | `検索クエリ: ` / `検索文書: ` |
+
+The Ruri presets also cap the encode batch size (16 / 32) at their
+measured RTX 4090 throughput optima.
 
 ## Persona Data Model
 

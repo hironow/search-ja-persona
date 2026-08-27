@@ -125,7 +125,11 @@ def test_persona_application_uses_sentence_embedder(
 
     class FakeSentenceEmbedder:
         def __init__(
-            self, model_name: str, device=None, normalize_embeddings: bool = True
+            self,
+            model_name: str,
+            device=None,
+            normalize_embeddings: bool = True,
+            **kwargs: Any,
         ) -> None:
             recorded["embedder_args"] = {
                 "model_name": model_name,
@@ -185,7 +189,11 @@ def test_persona_application_uses_fast_embedder(
 
     class FakeFastEmbedder:
         def __init__(
-            self, model_name: str, cache_dir=None, normalize_embeddings: bool = True
+            self,
+            model_name: str,
+            cache_dir=None,
+            normalize_embeddings: bool = True,
+            **kwargs: Any,
         ) -> None:
             recorded["embedder_args"] = {
                 "model_name": model_name,
@@ -232,3 +240,28 @@ def test_application_config_defaults_to_ipv4_loopback() -> None:
     assert config.qdrant_host == "127.0.0.1"
     assert config.es_host == "127.0.0.1"
     assert config.neo4j_host == "127.0.0.1"
+
+
+def test_persona_application_passes_ruri_prefixes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: dict[str, Any] = {}
+
+    class FakeSentenceEmbedder:
+        def __init__(self, model_name: str, **kwargs: Any) -> None:
+            recorded["model_name"] = model_name
+            recorded["kwargs"] = kwargs
+            self.dimension = 768
+
+    import search_ja_persona.application as app_module
+
+    monkeypatch.setattr(app_module, "SentenceTransformerEmbedder", FakeSentenceEmbedder)
+
+    from search_ja_persona.application import ApplicationConfig, PersonaApplication
+
+    PersonaApplication.build(ApplicationConfig(embedder="ruri-v3-310m"))
+
+    assert recorded["model_name"] == "cl-nagoya/ruri-v3-310m"
+    assert recorded["kwargs"]["query_prefix"] == "検索クエリ: "
+    assert recorded["kwargs"]["document_prefix"] == "検索文書: "
+    assert recorded["kwargs"]["encode_batch_size"] == 16
