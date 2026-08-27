@@ -269,3 +269,62 @@ def test_prefecture_filtered_search_with_emulators(tmp_path: Path) -> None:
         assert all(hit.get("prefecture") == "北海道" for hit in fused)
     finally:
         _cleanup_resources(app, uuids)
+
+
+def test_rrf_fusion_with_emulators(tmp_path: Path) -> None:
+    dual_uuid = uuid4().hex
+    rows = [
+        {
+            "uuid": dual_uuid,
+            "persona": "スキーとスノーボードを心から楽しむ人",
+            "prefecture": "北海道",
+            "region": "北海道地方",
+        },
+        {
+            "uuid": uuid4().hex,
+            "persona": "編み物と裁縫が趣味の職人",
+            "prefecture": "東京都",
+            "region": "関東地方",
+        },
+        {
+            "uuid": uuid4().hex,
+            "persona": "スノーボード初心者向けの教室を開く人",
+            "prefecture": "大阪府",
+            "region": "近畿地方",
+        },
+    ]
+    parquet_path = tmp_path / "sample.parquet"
+    PersonaRepository.write_sample(parquet_path, rows)
+
+    unique_suffix = uuid4().hex[:12]
+    config = ApplicationConfig(
+        qdrant_collection=f"test_personas_{unique_suffix}",
+        es_index=f"test-personas-{unique_suffix}",
+    )
+    _ensure_emulators_available(config)
+    app = PersonaApplication.build(config)
+    uuids = [row["uuid"] for row in rows]
+
+    try:
+        app.index([parquet_path], batch_size=len(rows))
+        app.elasticsearch.transport.request(
+            RequestDescriptor("POST", f"/{app.elasticsearch.index}/_refresh")
+        )
+
+        query = "スキーとスノーボードを楽しむ"
+        results = app.search(query, limit=3)
+
+        assert results
+        returned = [hit["uuid"] for hit in results]
+        assert len(returned) == len(set(returned))
+        assert all(hit["sources"] for hit in results)
+        assert all("rrf_score" in hit for hit in results)
+        # The document both legs rank highly must win the fusion.
+        assert results[0]["uuid"] == dual_uuid
+        assert results[0]["sources"] == ["vector", "keyword"]
+
+        filtered = app.search(query, limit=3, prefecture="北海道")
+        assert filtered
+        assert all(hit["prefecture"] == "北海道" for hit in filtered)
+    finally:
+        _cleanup_resources(app, uuids)

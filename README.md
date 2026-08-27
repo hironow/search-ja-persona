@@ -8,20 +8,20 @@ Data flow
 
 1. Parquet shards -> `PersonaRepository` (stream records with optional limits)
 2. `PersonaIndexer` -> Qdrant (vector), Elasticsearch (keyword), Neo4j (context graph)
-3. Query text -> embedder -> `PersonaSearchService` -> merge vector hits, keyword fallbacks, graph context
+3. Query text -> embedder -> `PersonaSearchService` -> RRF-fuse vector and keyword rankings, add graph context
 
 Key components
 
 - `PersonaRepository` streams records from one or more parquet files (batch aware, limit ready).
 - `PersonaIndexer` normalizes persona text fields, builds embeddings, and writes to each emulator service.
-- `PersonaSearchService` embeds the query, runs Qdrant vector search, enriches results with Elasticsearch keyword hits and Neo4j persona context, then returns a combined list.
+- `PersonaSearchService` embeds the query, runs Qdrant vector search and Elasticsearch keyword search in parallel roles, fuses both rankings with weighted Reciprocal Rank Fusion (RRF, K=60, production weights 1:1), and enriches the fused top hits with Neo4j persona context.
 
 ## Score Semantics
 
-Each search result exposes a `score` field:
+Results are ordered by `rrf_score` (the fusion score); `sources` lists which legs returned each hit. Each search result also exposes a `score` field:
 
 - For candidates returned by Qdrant, `score` is the cosine similarity reported by Qdrant (higher is better).
-- When Elasticsearch supplies a fallback persona that was not in the vector shortlist, the Elasticsearch `_score` is mapped into the same `score` field.
+- When a persona was returned only by Elasticsearch, its `_score` is mapped into the same `score` field.
 - `--verbose` mode prints hit counts: `vector_hits`, `keyword_hits`, `context_calls`, and `results` so you can diagnose which backend produced the answer set.
 
 ## Repository Map

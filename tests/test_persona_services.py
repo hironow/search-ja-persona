@@ -187,10 +187,13 @@ def test_search_service_merges_results() -> None:
 
     results = service.search("介護", limit=2)
 
-    assert results[0]["uuid"] == "1"
-    assert results[0]["context"]["prefecture"] == "東京都"
-    assert any(hit["uuid"] == "2" for hit in results)
-    assert results[0]["persona_fields"]["persona"] == "東京"
+    # RRF: doc 2 appears in both legs and outranks the vector-only doc 1.
+    assert [hit["uuid"] for hit in results] == ["2", "1"]
+    assert results[0]["sources"] == ["vector", "keyword"]
+    assert results[0]["persona_fields"]["persona"] == "大阪の菓子職人"
+    assert results[1]["sources"] == ["vector"]
+    assert results[1]["persona_fields"]["persona"] == "東京"
+    assert results[1]["context"]["prefecture"] == "東京都"
 
 
 def test_qdrant_ensure_collection_handles_conflict() -> None:
@@ -662,3 +665,136 @@ def test_search_service_passes_prefecture_to_both_legs() -> None:
 
     assert qdrant.search.call_args.kwargs["prefecture"] == "北海道"
     assert elasticsearch.search.call_args.kwargs["prefecture"] == "北海道"
+
+
+def _fusion_service(
+    vector_hits: list[dict],
+    keyword_hits: list[dict],
+    **kwargs,
+) -> tuple[PersonaSearchService, Mock]:
+    qdrant = Mock()
+    qdrant.search.return_value = vector_hits
+    elastic = Mock()
+    elastic.search.return_value = {"hits": {"hits": keyword_hits}}
+    neo4j = Mock()
+    neo4j.fetch_persona_context.return_value = {"relationships": []}
+    service = PersonaSearchService(
+        embedder=HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3)),
+        qdrant=qdrant,
+        elasticsearch=elastic,
+        neo4j=neo4j,
+        persona_fields=("persona",),
+        **kwargs,
+    )
+    return service, neo4j
+
+
+def _vector_hit(uuid: str, score: float = 0.5) -> dict:
+    return {
+        "id": uuid,
+        "score": score,
+        "payload": {"uuid": uuid, "text": f"text-{uuid}", "persona_fields": {}},
+    }
+
+
+def _keyword_hit(uuid: str, score: float = 1.0) -> dict:
+    return {
+        "_id": uuid,
+        "_score": score,
+        "_source": {"uuid": uuid, "text": f"text-{uuid}"},
+    }
+
+
+def test_rrf_ranks_two_leg_consensus_above_single_leg_top() -> None:
+    service, _ = _fusion_service(
+        [_vector_hit("a"), _vector_hit("b"), _vector_hit("c")],
+        [_keyword_hit("c"), _keyword_hit("b")],
+    )
+
+    results = service.search("クエリ", limit=3)
+
+    assert [hit["uuid"] for hit in results] == ["c", "b", "a"]
+
+
+def test_rrf_breaks_exact_ties_by_uuid() -> None:
+    service, _ = _fusion_service(
+        [_vector_hit("z-vec")],
+        [_keyword_hit("a-key")],
+    )
+
+    results = service.search("クエリ", limit=2)
+
+    assert [hit["uuid"] for hit in results] == ["a-key", "z-vec"]
+
+
+def test_rrf_weights_shift_the_order() -> None:
+    service, _ = _fusion_service(
+        [_vector_hit("z-vec")],
+        [_keyword_hit("a-key")],
+        rrf_weights=(2.0, 1.0),
+    )
+
+    results = service.search("クエリ", limit=2)
+
+    assert [hit["uuid"] for hit in results] == ["z-vec", "a-key"]
+
+
+def test_rrf_degrades_to_single_leg_order() -> None:
+    vector_only, _ = _fusion_service(
+        [_vector_hit("b"), _vector_hit("a")],
+        [],
+    )
+    assert [hit["uuid"] for hit in vector_only.search("q", limit=2)] == ["b", "a"]
+
+    keyword_only, _ = _fusion_service(
+        [],
+        [_keyword_hit("b"), _keyword_hit("a")],
+    )
+    assert [hit["uuid"] for hit in keyword_only.search("q", limit=2)] == ["b", "a"]
+
+
+def test_rrf_fetch_depth_never_undershoots_the_limit() -> None:
+    service, _ = _fusion_service([_vector_hit("a")], [])
+
+    service.search("q", limit=5)
+    assert service.qdrant.search.call_args.kwargs["limit"] == 15
+    assert service.elasticsearch.search.call_args.kwargs["limit"] == 15
+
+    service.search("q", limit=1)
+    assert service.qdrant.search.call_args.kwargs["limit"] == 3
+
+    service.search("q", limit=40)
+    assert service.qdrant.search.call_args.kwargs["limit"] == 40
+
+
+def test_rrf_fetches_context_only_for_returned_hits() -> None:
+    service, neo4j = _fusion_service(
+        [_vector_hit("a"), _vector_hit("b"), _vector_hit("c")],
+        [],
+    )
+
+    results = service.search("q", limit=2)
+
+    assert len(results) == 2
+    assert neo4j.fetch_persona_context.call_count == 2
+
+
+def test_rrf_score_and_sources_contract() -> None:
+    service, _ = _fusion_service(
+        [_vector_hit("dual", score=0.42), _vector_hit("vec-only", score=0.3)],
+        [_keyword_hit("dual", score=7.5), _keyword_hit("kw-only", score=5.5)],
+    )
+
+    results = service.search("q", limit=3)
+    by_uuid = {hit["uuid"]: hit for hit in results}
+
+    dual = by_uuid["dual"]
+    assert dual["sources"] == ["vector", "keyword"]
+    assert dual["score"] == 0.42
+    assert dual["rrf_score"] == pytest.approx(1 / 61 + 1 / 61)
+
+    assert by_uuid["vec-only"]["sources"] == ["vector"]
+    assert by_uuid["vec-only"]["score"] == 0.3
+    assert by_uuid["kw-only"]["sources"] == ["keyword"]
+    assert by_uuid["kw-only"]["score"] == 5.5
+    assert by_uuid["kw-only"]["rrf_score"] == pytest.approx(1 / 62)

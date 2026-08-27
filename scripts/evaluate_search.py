@@ -22,6 +22,7 @@ import pyarrow.parquet as pq
 from search_ja_persona.application import ApplicationConfig, PersonaApplication
 from search_ja_persona.evaluation import (
     build_report,
+    check_thresholds,
     load_golden_queries,
     precision_at_k,
     recall_at_k,
@@ -44,6 +45,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Personas sampled for self-retrieval recall",
     )
     parser.add_argument("--seed", type=int, default=20260827)
+    parser.add_argument(
+        "--rrf-weights",
+        default=None,
+        help="Comma-separated vector,keyword RRF weights (default: production)",
+    )
+    parser.add_argument(
+        "--check-thresholds",
+        action="store_true",
+        help="Exit non-zero when a ratified intent.md bar or a required metric is unmet",
+    )
     return parser.parse_args(argv)
 
 
@@ -96,7 +107,14 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     # Validate the golden set before touching any live service.
     golden = load_golden_queries(GOLDEN_PATH)
-    app = PersonaApplication.build(ApplicationConfig(embedder=args.embedder))
+    config_kwargs: dict = {"embedder": args.embedder}
+    if args.rrf_weights is not None:
+        vector_weight, keyword_weight = (
+            float(part) for part in args.rrf_weights.split(",")
+        )
+        config_kwargs["rrf_weights"] = (vector_weight, keyword_weight)
+    config = ApplicationConfig(**config_kwargs)
+    app = PersonaApplication.build(config)
 
     started = time.perf_counter()
     per_query, filtered_rows = run_golden(app, golden, k=args.k)
@@ -132,6 +150,7 @@ def main(argv: list[str] | None = None) -> None:
         k=args.k,
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
         elapsed_seconds=elapsed,
+        fusion={"rrf_weights": list(config.rrf_weights)},
     )
 
     by_tier = report["golden_mean_precision_by_tier"]
@@ -160,6 +179,14 @@ def main(argv: list[str] | None = None) -> None:
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"wrote {out_path}")
+
+    if args.check_thresholds:
+        failures = check_thresholds(report)
+        if failures:
+            for failure in failures:
+                print(f"THRESHOLD FAIL: {failure}")
+            raise SystemExit(1)
+        print("thresholds OK (basic >= 0.85, self-retrieval recall@1 >= 0.99)")
 
 
 if __name__ == "__main__":

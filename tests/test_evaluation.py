@@ -7,6 +7,7 @@ import pytest
 
 from search_ja_persona.evaluation import (
     build_report,
+    check_thresholds,
     load_golden_queries,
     matches_expectation,
     precision_at_k,
@@ -320,3 +321,69 @@ def test_build_report_defaults_to_empty_filtered_section() -> None:
 
     assert report["filtered"] == []
     assert report["filtered_mean_precision"] is None
+
+
+def _healthy_report(**overrides: object) -> dict:
+    report: dict = {
+        "golden_mean_precision": 0.9,
+        "golden_mean_precision_by_tier": {"basic": 0.9, "hard": 0.43},
+        "filtered": [{"query": "q"}],
+        "filtered_mean_precision": 1.0,
+        "self_retrieval": {"samples": 100, "recall_at_1": 1.0, "recall_at_10": 1.0},
+    }
+    report.update(overrides)
+    return report
+
+
+def test_check_thresholds_passes_on_healthy_report() -> None:
+    assert check_thresholds(_healthy_report()) == []
+
+
+@pytest.mark.parametrize(
+    ("overrides", "fragment"),
+    [
+        ({"golden_mean_precision_by_tier": {"basic": 0.84, "hard": 0.43}}, "basic"),
+        ({"golden_mean_precision_by_tier": {"hard": 0.43}}, "basic"),
+        ({"golden_mean_precision_by_tier": {"basic": 0.9}}, "hard"),
+        (
+            {
+                "self_retrieval": {
+                    "samples": 0,
+                    "recall_at_1": None,
+                    "recall_at_10": None,
+                }
+            },
+            "self-retrieval",
+        ),
+        (
+            {
+                "self_retrieval": {
+                    "samples": 100,
+                    "recall_at_1": 0.98,
+                    "recall_at_10": 1.0,
+                }
+            },
+            "recall@1",
+        ),
+        ({"filtered": [], "filtered_mean_precision": None}, "filtered"),
+    ],
+)
+def test_check_thresholds_reports_failures(overrides: dict, fragment: str) -> None:
+    failures = check_thresholds(_healthy_report(**overrides))
+
+    assert failures
+    assert any(fragment in failure for failure in failures)
+
+
+def test_build_report_records_fusion_config() -> None:
+    report = build_report(
+        per_query=[{"query": "a", "tier": "basic", "precision_at_k": 1.0}],
+        self_retrieval={"samples": 1, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        embedder="ruri-v3-310m",
+        k=5,
+        generated_at="2026-08-27T00:00:00+00:00",
+        elapsed_seconds=1.0,
+        fusion={"rrf_weights": [2.0, 1.0]},
+    )
+
+    assert report["fusion"] == {"rrf_weights": [2.0, 1.0]}
