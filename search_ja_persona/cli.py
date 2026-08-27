@@ -62,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _run_download_dataset(args)
     elif args.command == "clear-emulators":
         _run_clear_emulators(args)
+    elif args.command == "repair-metadata":
+        _run_repair_metadata(args)
     else:  # pragma: no cover - defensive
         parser.error(f"Unknown command: {args.command}")
     return 0
@@ -200,6 +202,40 @@ def _build_parser() -> argparse.ArgumentParser:
     reset_parser.add_argument("--neo4j-port", type=int, default=7474)
     reset_parser.add_argument("--neo4j-user", default="neo4j")
     reset_parser.add_argument("--neo4j-password", default="password")
+
+    repair_parser = subcommands.add_parser(
+        "repair-metadata",
+        help="Re-record index metadata for an existing collection without touching data",
+    )
+    repair_parser.add_argument(
+        "--embedder",
+        required=True,
+        choices=sorted(EMBEDDER_PRESETS.keys()),
+        help="Preset that built the existing index (verified against the collection dimension)",
+    )
+    repair_parser.add_argument("--vector-dimension", type=int, default=256)
+    repair_parser.add_argument("--ngram-sizes", default="2,3")
+    repair_parser.add_argument(
+        "--persona-fields",
+        default="all",
+        help="Comma-separated persona columns or 'all' (verified against a stored point)",
+    )
+    repair_parser.add_argument(
+        "--embedder-model", default="sentence-transformers/all-MiniLM-L6-v2"
+    )
+    repair_parser.add_argument("--embedder-device", default=None)
+    repair_parser.add_argument(
+        "--embedder-normalize",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    repair_parser.add_argument(
+        "--fastembed-cache-dir", type=Path, default=Path(".cache")
+    )
+    repair_parser.add_argument("--qdrant-host", default="127.0.0.1")
+    repair_parser.add_argument("--qdrant-port", type=int, default=6333)
+    repair_parser.add_argument("--qdrant-collection", default="personas")
+    repair_parser.add_argument("--qdrant-distance", default="Cosine")
 
     return parser
 
@@ -555,14 +591,19 @@ def _run_index(args: argparse.Namespace) -> None:
         password=args.neo4j_password,
     )
 
-    before_stats, before_meta = _collect_index_stats(qdrant, elastic, neo4j)
-    if not existing_metadata and before_meta.get("qdrant_vector_size"):
-        existing_metadata = {
-            "embedder": {
-                "vector_dimension": before_meta["qdrant_vector_size"],
-                "persona_fields": list(persona_fields),
-            }
-        }
+    before_stats, _before_meta = _collect_index_stats(qdrant, elastic, neo4j)
+    if not existing_metadata and before_stats.get("qdrant_points", 0) > 0:
+        # Guessing the embedder that built a populated store risks either a
+        # destructive reset prompt or silently appending vectors from a
+        # different model; refuse and route through the verified repair.
+        console.print(
+            f"[red]Collection '{args.qdrant_collection}' already holds "
+            f"{before_stats['qdrant_points']} points but {METADATA_PATH} is "
+            "missing. Run 'repair-metadata --embedder <preset>' to re-record "
+            "the embedder that built it (or clear-emulators for a full "
+            "rebuild).[/red]"
+        )
+        raise SystemExit(2)
     if _should_reset(existing_metadata, embedder_info):
         current = (
             (existing_metadata or {}).get("embedder", {}) if existing_metadata else {}
@@ -610,8 +651,31 @@ def _run_index(args: argparse.Namespace) -> None:
     )
 
 
+def _is_usable_metadata(metadata: dict | None) -> bool:
+    return bool(
+        metadata
+        and metadata.get("schema_version") == INDEX_METADATA_SCHEMA_VERSION
+        and isinstance(metadata.get("embedder"), dict)
+        and metadata["embedder"]
+    )
+
+
 def _run_search(args: argparse.Namespace) -> None:
     existing_metadata = _load_index_metadata()
+    if args.embedder is None and not _is_usable_metadata(existing_metadata):
+        # The hashed default would not match an index built by any other
+        # embedder; without usable metadata the right preset is unknowable.
+        reason = (
+            "not found"
+            if not METADATA_PATH.exists()
+            else "unusable (stale schema or missing embedder info)"
+        )
+        console.print(
+            f"[red]Index metadata {METADATA_PATH} is {reason}: cannot infer the "
+            "embedder that built the index. Pass --embedder explicitly, or run "
+            "'repair-metadata --embedder <preset>' to re-record it.[/red]"
+        )
+        raise SystemExit(2)
     persona_fields, persona_note = _resolve_persona_fields(
         args,
         existing_metadata=existing_metadata,
@@ -723,6 +787,82 @@ def _run_download_dataset(args: argparse.Namespace) -> None:
     console.log("Downloading dataset shards...")
     datasets.ensure_dataset_cached(config)
     console.log("Dataset download completed")
+
+
+def _run_repair_metadata(args: argparse.Namespace) -> None:
+    """Re-record the metadata file for an existing collection, read-only.
+
+    The declared embedder is verified against the live collection's vector
+    dimension and the requested persona fields against a stored point's
+    payload; nothing is written to any store. The model identity itself is
+    unverifiable from the store (several models share a dimension), so it
+    is taken on the operator's word.
+    """
+
+    persona_fields = _parse_persona_fields(args.persona_fields)
+    embedder, embedder_info, _ = _build_embedder(args)
+    embedder_info["persona_fields"] = list(persona_fields)
+
+    qdrant = QdrantService(
+        host=args.qdrant_host,
+        port=args.qdrant_port,
+        collection=args.qdrant_collection,
+        vector_size=embedder.dimension,
+        distance=args.qdrant_distance,
+    )
+    try:
+        info = qdrant.transport.request(
+            RequestDescriptor(
+                method="GET", path=f"/collections/{args.qdrant_collection}"
+            )
+        )
+    except RuntimeError as exc:
+        console.print(
+            f"[red]Collection '{args.qdrant_collection}' is unavailable: {exc}[/red]"
+        )
+        raise SystemExit(2) from exc
+
+    result = info.get("result", {})
+    size = result.get("config", {}).get("params", {}).get("vectors", {}).get("size")
+    points = result.get("points_count", 0)
+    if size is None or int(size) != embedder.dimension:
+        console.print(
+            f"[red]Collection '{args.qdrant_collection}' holds {size}-dim "
+            f"vectors but preset '{args.embedder}' produces "
+            f"{embedder.dimension}-dim: refusing to record a mismatched "
+            "embedder.[/red]"
+        )
+        raise SystemExit(2)
+
+    scroll = qdrant.transport.request(
+        RequestDescriptor(
+            method="POST",
+            path=f"/collections/{args.qdrant_collection}/points/scroll",
+            body={"limit": 1, "with_payload": True},
+        )
+    )
+    sample_points = scroll.get("result", {}).get("points", [])
+    if sample_points:
+        payload_fields = set(
+            (sample_points[0].get("payload", {}).get("persona_fields") or {}).keys()
+        )
+        if payload_fields and payload_fields != set(persona_fields):
+            console.print(
+                f"[red]Stored points carry persona fields "
+                f"{sorted(payload_fields)} but {sorted(persona_fields)} were "
+                "requested: refusing to record mismatched fields.[/red]"
+            )
+            raise SystemExit(2)
+
+    console.print(
+        "[yellow]Note: the model identity cannot be verified from the store; "
+        f"recording preset '{args.embedder}' as declared.[/yellow]"
+    )
+    _write_index_metadata(embedder_info, args, embedder)
+    console.print(
+        f"[green]Recorded metadata for '{args.qdrant_collection}' "
+        f"({points} points, dim {embedder.dimension}) → {METADATA_PATH}[/green]"
+    )
 
 
 def _run_clear_emulators(args: argparse.Namespace) -> None:

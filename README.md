@@ -153,6 +153,12 @@ uv run python -m search_ja_persona.cli search \
   one-off `just ensure-payload-index`).
 - `--verbose` surfaces per-backend hit statistics alongside the unified result list.
 - To reuse the last indexed embedder or persona field set, omit `--embedder` and `--persona-fields` (the CLI will read `.cache/index_metadata.json`).
+- If that metadata file is missing or unusable, `search` without `--embedder`
+  fails fast (the hashed default would not match the live index), and `index`
+  refuses to touch a populated collection. Recover with
+  `uv run python -m search_ja_persona.cli repair-metadata --embedder <preset>`,
+  which verifies the collection's vector dimension and stored persona fields
+  before re-recording the metadata — without writing to any store.
 
 ## Emulator Data Persistence
 

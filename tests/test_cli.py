@@ -127,7 +127,19 @@ def test_cli_search_outputs_results(
     test_console = Console(record=True)
     monkeypatch.setattr(cli, "console", test_console)
 
-    cli.main(["search", "--query", "介護", "--limit", "1", "--format", "json"])
+    cli.main(
+        [
+            "search",
+            "--query",
+            "介護",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+            "--embedder",
+            "hashed",
+        ]
+    )
 
     payload = json.loads(test_console.export_text().strip())
     assert payload[0]["uuid"] == "1"
@@ -174,7 +186,18 @@ def test_cli_search_verbose_outputs_logs(
     test_console = Console(record=True)
     monkeypatch.setattr(cli, "console", test_console)
 
-    cli.main(["search", "--query", "テスト", "--limit", "1", "--verbose"])
+    cli.main(
+        [
+            "search",
+            "--query",
+            "テスト",
+            "--limit",
+            "1",
+            "--verbose",
+            "--embedder",
+            "hashed",
+        ]
+    )
 
     output = test_console.export_text()
     assert "Qdrant candidates: 2" in output
@@ -705,6 +728,8 @@ def test_cli_search_passes_prefecture_filter(
             "json",
             "--prefecture",
             "北海道",
+            "--embedder",
+            "hashed",
         ]
     )
 

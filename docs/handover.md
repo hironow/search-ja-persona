@@ -63,7 +63,7 @@ hold exactly **1,000,000** personas (ground truth: 1,000,000 distinct uuids,
 parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
 77 passed / 1 skipped; CI (ubuntu + windows) green; open Dependabot alerts: 0.
 
-- **prefecture filter (branch `feat/prefecture-filter`)**: residency is
+- **#45 prefecture filter**: residency is
   now an explicit filter — `--prefecture` (validated against the 47
   official names) drives a Qdrant payload filter + ES term filter; the
   keyword payload index is created at index time for new collections and
@@ -74,8 +74,26 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   0.433). See `docs/research/2026-08-27-prefecture-filter-results.md`.
 
 ## In Progress
-- PR for `feat/prefecture-filter` — merge on green per the session's
-  per-PR agreement.
+- PR for `fix/missing-index-metadata` (this branch) — merge on green per
+  the session's per-PR agreement. `.cache/index_metadata.json` had gone
+  missing (cause untraceable; the file is CWD-relative and unlinked by
+  reset/clear paths). Search without `--embedder` used to fall back to
+  hashed-256 and die with an opaque Qdrant dimension error; worse, an
+  index rerun reconstructed partial metadata that always failed
+  `_should_reset`'s schema check, putting a destructive reset prompt in
+  front of the healthy 1M collection. Both paths now fail closed, and a
+  read-only `repair-metadata` subcommand re-records metadata after
+  verifying collection dimension + stored persona fields. Live metadata
+  restored via the new command (1,000,000 points, dim 768); bare CLI
+  search works again.
+- **Neo4j collateral found and healed**: the pre-existing integration
+  test `test_index_and_search_with_emulators` indexes the first 5 REAL
+  dataset rows into isolated Qdrant/ES resources but the SHARED Neo4j
+  database, and its cleanup DETACH-DELETEs those uuids — every
+  `just integration` run silently removed 5 real personas from the live
+  graph (found at 999,995). Restored to exactly 1,000,000 via idempotent
+  reindex of shard-0 rows 0-4. The test still needs fixing (synthetic
+  uuids, or skip the Neo4j cleanup for real-uuid rows).
 
 ## Next Actions
 1. Human decisions queued by the hardening research note: (a) new hard-tier
@@ -89,11 +107,18 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
    fusion redesign (keyword leg is effectively unused; BM25 alone beats
    fused on the predicate metrics) → name-token exclusion at embed time
    (needs ~50min reindex) → pooled human qrels.
-3. Tooling candidate (from the plan review): this repo has no `just check`
+3. Fix the integration test's Neo4j collateral (see In Progress) — one
+   small `fix` PR.
+4. Metadata robustness candidates (structural, separate work unit, from
+   the plan review): identity-keyed metadata (record/verify Qdrant
+   endpoint+collection, per-identity files instead of one global
+   CWD-relative file), atomic writes, and clear-emulators unlinking the
+   global metadata even when pointed at a non-default collection.
+5. Tooling candidate (from the plan review): this repo has no `just check`
    aggregate gate and no mypy/semgrep; the enforced gate today is
    `just pre-commit` + `just test` (mirrors CI). Adding the full AGENTS.md
    gate is a separate structural PR.
-4. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
+6. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
    any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
    data and does not shrink automatically.
 
@@ -107,11 +132,11 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   Desktop's engine needs to be started first on Windows. Volumes persist
   across stop/down/reboot — only `down -v`, volume prune, or a Docker
   Desktop purge destroy them (see README "Emulator Data Persistence").
-- `.cache/index_metadata.json` is currently absent, so a bare CLI
-  `search` (no `--embedder`) falls back to the hashed 256-dim preset and
-  fails against the 768-dim live collection — pass
-  `--embedder ruri-v3-310m` explicitly (or rerun an index to rewrite the
-  metadata).
+- `.cache/index_metadata.json` is CWD-relative and can go missing; since
+  the fail-closed fix, `search`/`index` refuse to guess and the recovery
+  is `repair-metadata --embedder <preset>` (read-only, verifies the
+  collection dimension and stored persona fields). The live file was
+  restored on 2026-08-27.
 - `scripts/generate_qa_sample.py` still requires the HF cache
   (`download-dataset`); the current `qa_samples/qa_sample.parquet` was cut
   directly from shard 0 of the submodule (all 8 LFS shards are pulled,
