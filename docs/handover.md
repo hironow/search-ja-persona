@@ -36,9 +36,11 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
    direct dependency so `tool.uv.sources` applies.
 10. `feat(embeddings)` + `perf(indexer)` batch embedding: `embed_many` on
     the Embedder protocol (all three backends) and one batched encode per
-    ingest batch. Measured: 9.7ms → 0.24ms per text on the RTX 4090;
-    `just qa` 40s → 31s (startup + per-persona Neo4j merges dominate the
-    rest).
+    ingest batch. Measured: 9.7ms → 0.24ms per text on the RTX 4090.
+11. `feat(services)` + `perf(indexer)` batched Neo4j ingest: UNWIND-based
+    `merge_personas`, one transaction per batch. `just qa` overall:
+    40s → 26s; verified against the live emulator (`just integration`,
+    1000/1000 persona nodes).
 
 ## Next Actions
 1. Human: review and push `fix/windows-portability`, open a PR. The Dependabot
@@ -47,10 +49,11 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
    emulator non-goal vs. the vendored stack — is still unresolved.
 3. Consider a `windows-latest` leg in `ci.yaml` so Windows support cannot
    regress (not added here: unverifiable locally while push is forbidden).
-4. Next ingest bottleneck: `Neo4jService.merge_persona` issues one HTTP
-   transaction per persona (~3ms each → ~50min per 1M rows). Batching the
-   Cypher MERGEs per ingest batch (single tx/commit with UNWIND) would
-   remove it. Embedding is already batched (`embed_many`).
+4. Neo4j tx/commit responses report statement errors in the body with
+   HTTP 200, and no service checks that field. The per-item merge path
+   silently dropped 5/1000 personas this way (batched UNWIND now lands
+   1000/1000). Surfacing `errors` from Neo4j (and Elasticsearch `_bulk`
+   item errors) would turn silent data loss into a visible failure.
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
