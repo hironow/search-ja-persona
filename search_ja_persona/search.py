@@ -2,10 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from .embeddings import Embedder
 from .persona_fields import PERSONA_TEXT_FIELDS
 from .services import ElasticsearchService, Neo4jService, QdrantService
+
+
+def _normalize_uuid(value: object) -> str:
+    # Qdrant echoes UUID point ids in the canonical hyphenated form, while
+    # the dataset, Elasticsearch ids, and Neo4j nodes all use the hyphen-less
+    # hex. Fuse everything on the dataset form so dedup and graph lookups
+    # match across backends.
+    try:
+        return UUID(str(value)).hex
+    except (ValueError, TypeError):
+        return str(value)
 
 
 @dataclass
@@ -40,7 +52,7 @@ class PersonaSearchService:
         for hit in keyword_hits:
             source = hit.get("_source", {})
             per_field = {field: source.get(field, "") for field in self.persona_fields}
-            keyword_map[str(hit.get("_id"))] = {
+            keyword_map[_normalize_uuid(hit.get("_id"))] = {
                 "uuid": source.get("uuid") or hit.get("_id"),
                 "text": source.get("text"),
                 "prefecture": source.get("prefecture"),
@@ -59,7 +71,7 @@ class PersonaSearchService:
         seen: set[str] = set()
 
         for hit in vector_hits:
-            uuid = str(hit.get("id"))
+            uuid = _normalize_uuid(hit.get("id"))
             payload = hit.get("payload", {})
             doc = keyword_map.get(uuid, payload)
             context = self.neo4j.fetch_persona_context(uuid)
