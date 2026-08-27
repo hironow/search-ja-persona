@@ -56,6 +56,11 @@ qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" 
 
 qa: qa-index qa-search
 
+# Search-quality benchmark: golden-query precision@k + self-retrieval
+# recall@k against the live index (report lands in outputs/)
+eval:
+    uv run --frozen python -m scripts.evaluate_search
+
 # Index the full corpus one shard at a time. Each shard is a checkpoint:
 # uuid-keyed upserts make reruns idempotent, so on failure rerun from the
 # failed shard only (or rerun the whole recipe; completed shards just

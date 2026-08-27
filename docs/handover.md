@@ -30,6 +30,21 @@ The full corpus is indexed and verified. PRs #35–#38 are squash-merged on
   section (health + three-store count agreement + metadata), a committed
   snapshot of real full-corpus results (`marimo/catalog_snapshot.json`),
   and button-triggered live search using the metadata-recorded embedder.
+- **#40 persona panel**: read-mode survey app (`just panel` / `panel-app`) —
+  top-M personas from the fused search answer a text/image input in
+  character via local Ollama (installed-model dropdown, default
+  huihui_ai/Qwen3.8-abliterated), JSONL outputs, run-history preview, and
+  a committed all-huihui M=30 sample (`marimo/panel_example.jsonl`).
+- **#41 uuid fusion fix**: Qdrant's hyphenated point ids never matched the
+  dataset's hyphen-less uuids, so keyword-dedup was dead and Neo4j context
+  for vector hits had been silently empty since the feature shipped; ids
+  are now normalized at the fusion boundary (graph enrichment verified
+  live).
+- **search-quality benchmark**: `just eval` measures golden-query
+  precision@5 (12 machine-checkable queries) and self-retrieval recall@k
+  (100 seeded personas). Baseline 2026-08-27: precision 0.900, recall@1 =
+  recall@10 = 1.00 — see
+  `docs/research/2026-08-27-search-quality-baseline.md`.
 
 **Index state (verified 2026-08-27):** Qdrant / Elasticsearch / Neo4j all
 hold exactly **1,000,000** personas (ground truth: 1,000,000 distinct uuids,
@@ -41,12 +56,13 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
 Nothing in flight.
 
 ## Next Actions
-1. Search relevance quality bar is still undefined (intent.md open
-   question) — only eyeball checks exist. A golden-query set or
-   JMTEB-style eval over the indexed corpus would make quality regressions
-   visible.
-2. intent.md remains DRAFT: requester review and the "intended audience /
-   downstream use" open question are still unanswered.
+1. Human: ratify (or adjust) the proposed quality bar — golden mean
+   precision@5 ≥ 0.85, self-retrieval recall@1 ≥ 0.99 — and the intent.md
+   revision drafted in the 2026-08-27 session (agents must not edit
+   intent.md without the requester's decision).
+2. Improvement candidate from the baseline: location-constrained queries
+   are the weak class (沖縄 0.40) — residency belongs in a payload filter
+   (Qdrant prefecture filter), not the embedding.
 3. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
    any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
    data and does not shrink automatically.
