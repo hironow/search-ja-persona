@@ -147,6 +147,10 @@ uv run python -m search_ja_persona.cli search \
 ```
 
 - `--format table` renders a Rich table; `--format json` prints structured JSON.
+- `--prefecture 北海道` restricts results to residents of that prefecture via a
+  Qdrant payload filter plus an Elasticsearch term filter (official names only,
+  e.g. `沖縄県`, not `沖縄`; collections indexed before this feature need a
+  one-off `just ensure-payload-index`).
 - `--verbose` surfaces per-backend hit statistics alongside the unified result list.
 - To reuse the last indexed embedder or persona field set, omit `--embedder` and `--persona-fields` (the CLI will read `.cache/index_metadata.json`).
 - If that metadata file is missing or unusable, `search` without `--embedder`

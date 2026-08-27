@@ -19,6 +19,7 @@ from .embeddings import (
 )
 from .indexer import PersonaIndexer
 from .persona_fields import DEFAULT_PERSONA_FIELDS, PERSONA_TEXT_FIELDS
+from .prefectures import validate_prefecture
 from .repository import PersonaRepository
 from .search import PersonaSearchService
 from .services import (
@@ -129,6 +130,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     search_parser.add_argument("--query", required=True)
     search_parser.add_argument("--limit", type=int, default=5)
+    search_parser.add_argument(
+        "--prefecture",
+        type=validate_prefecture,
+        default=None,
+        help="Restrict results to residents of this prefecture (official name, e.g. 沖縄県)",
+    )
     search_parser.add_argument(
         "--embedder",
         choices=sorted(EMBEDDER_PRESETS.keys()),
@@ -710,12 +717,19 @@ def _run_search(args: argparse.Namespace) -> None:
     if notes:
         console.print("[dim]" + " | ".join(notes) + "[/dim]")
     if args.verbose:
-        results, stats = service.search(args.query, limit=args.limit, return_stats=True)
+        results, stats = service.search(
+            args.query,
+            limit=args.limit,
+            return_stats=True,
+            prefecture=args.prefecture,
+        )
         console.print(
             f"[dim]Qdrant candidates: {stats['vector_hits']} | Elasticsearch hits: {stats['keyword_hits']} | Context lookups: {stats['context_calls']}[/dim]"
         )
     else:
-        results = service.search(args.query, limit=args.limit)
+        results = service.search(
+            args.query, limit=args.limit, prefecture=args.prefecture
+        )
         stats = None
     if args.format == "json":
         console.print_json(json.dumps(results, ensure_ascii=False))

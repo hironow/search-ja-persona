@@ -34,6 +34,7 @@ class PersonaSearchService:
         *,
         limit: int = 5,
         return_stats: bool = False,
+        prefecture: str | None = None,
     ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
         if limit <= 0:
             results: list[dict[str, Any]] = []
@@ -44,8 +45,12 @@ class PersonaSearchService:
             )
 
         query_vector = self.embedder.embed_query(query)
-        vector_hits = self.qdrant.search(query_vector, limit=limit)
-        keyword_response = self.elasticsearch.search(query, limit=limit)
+        vector_hits = self.qdrant.search(
+            query_vector, limit=limit, prefecture=prefecture
+        )
+        keyword_response = self.elasticsearch.search(
+            query, limit=limit, prefecture=prefecture
+        )
         keyword_hits = keyword_response.get("hits", {}).get("hits", [])
 
         keyword_map: dict[str, dict[str, Any]] = {}
