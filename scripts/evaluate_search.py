@@ -47,21 +47,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def run_golden(app: PersonaApplication, golden: list[dict], *, k: int) -> list[dict]:
+    per_query: list[dict] = []
+    for entry in golden:
+        results = app.search(entry["query"], limit=k)
+        score = precision_at_k(results, entry["expect"], k=k)
+        per_query.append(
+            {"query": entry["query"], "tier": entry["tier"], "precision_at_k": score}
+        )
+        print(f"precision@{k} {score:.2f}  [{entry['tier']}]  {entry['query']}")
+    return per_query
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     # Validate the golden set before touching any live service.
     golden = load_golden_queries(GOLDEN_PATH)
     app = PersonaApplication.build(ApplicationConfig(embedder=args.embedder))
 
-    per_query: list[dict] = []
     started = time.perf_counter()
-    for entry in golden:
-        results = app.search(entry["query"], limit=args.k)
-        score = precision_at_k(results, entry["expect"], k=args.k)
-        per_query.append(
-            {"query": entry["query"], "tier": entry["tier"], "precision_at_k": score}
-        )
-        print(f"precision@{args.k} {score:.2f}  [{entry['tier']}]  {entry['query']}")
+    per_query = run_golden(app, golden, k=args.k)
 
     recall_1 = recall_10 = 0
     sampled = 0
