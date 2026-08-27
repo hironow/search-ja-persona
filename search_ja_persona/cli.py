@@ -412,19 +412,7 @@ def _reset_indexes(
         console.log(f"[yellow]Elasticsearch reset skipped:[/yellow] {exc}")
 
     try:
-        neo4j.transport.request(
-            RequestDescriptor(
-                method="POST",
-                path="/db/neo4j/tx/commit",
-                body={
-                    "statements": [
-                        {
-                            "statement": "MATCH (p:Persona) DETACH DELETE p",
-                        }
-                    ]
-                },
-            )
-        )
+        neo4j.delete_all_personas()
         cleared.append("Neo4j Persona nodes")
     except Exception as exc:  # noqa: BLE001 - reset is best-effort
         console.log(f"[yellow]Neo4j reset skipped:[/yellow] {exc}")
@@ -580,6 +568,10 @@ def _run_index(args: argparse.Namespace) -> None:
             console.print("[red]Indexing aborted by user.[/red]")
             return
         _reset_indexes(qdrant, elastic, neo4j, args)
+        # Persist the new embedder settings immediately: an ingest
+        # interrupted after the reset must resume without a second reset,
+        # and search must not fall back to an absent embedder config.
+        _write_index_metadata(embedder_info, args, embedder)
         before_stats, _ = _collect_index_stats(qdrant, elastic, neo4j)
 
     indexer = PersonaIndexer(

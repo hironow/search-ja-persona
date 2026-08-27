@@ -560,3 +560,97 @@ def test_cli_parser_defaults_to_ipv4_loopback() -> None:
         assert args.qdrant_host == "127.0.0.1"
         assert args.es_host == "127.0.0.1"
         assert args.neo4j_host == "127.0.0.1"
+
+
+def test_cli_index_persists_metadata_when_reset_confirmed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    parquet_path = tmp_path / "sample.parquet"
+    _write_sample_dataset(parquet_path)
+
+    metadata_path = tmp_path / "metadata.json"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "embedder": {
+                    "preset": "hashed",
+                    "type": "hashed",
+                    "vector_dimension": 256,
+                    "ngram_sizes": [2, 3],
+                    "normalize": True,
+                    "persona_fields": list(PERSONA_TEXT_FIELDS),
+                },
+                "schema_version": INDEX_METADATA_SCHEMA_VERSION,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeRepository:
+        def __init__(self, paths):
+            pass
+
+        def iter_personas(self, limit: int | None = None):  # pragma: no cover
+            return iter([])
+
+    class ExplodingIndexer:
+        def __init__(self, **kwargs):
+            pass
+
+        def index(self, *, batch_size: int, limit: int | None) -> None:
+            raise RuntimeError("boom mid-ingest")
+
+    class FakeService:
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setattr(cli, "PersonaRepository", FakeRepository)
+    monkeypatch.setattr(cli, "PersonaIndexer", ExplodingIndexer)
+    monkeypatch.setattr(cli, "QdrantService", FakeService)
+    monkeypatch.setattr(cli, "ElasticsearchService", FakeService)
+    monkeypatch.setattr(cli, "Neo4jService", FakeService)
+    monkeypatch.setattr(cli, "METADATA_PATH", metadata_path)
+
+    test_console = Console(record=True)
+    test_console.input = lambda prompt="": "yes"
+    monkeypatch.setattr(cli, "console", test_console)
+
+    with pytest.raises(RuntimeError, match="boom mid-ingest"):
+        cli.main(
+            [
+                "index",
+                "--dataset",
+                str(parquet_path),
+                "--vector-dimension",
+                "8",
+            ]
+        )
+
+    # The new embedder settings must be on disk the moment the reset is
+    # executed, so an interrupted ingest resumes without a second reset and
+    # search never falls back to a stale/absent embedder config.
+    data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert data["embedder"]["vector_dimension"] == 8
+
+
+def test_reset_indexes_uses_batched_persona_delete() -> None:
+    import argparse as argparse_module
+
+    recorded: dict[str, int] = {"batched_deletes": 0}
+
+    class FakeTransport:
+        def request(self, descriptor):
+            return {}
+
+    class FakeHttpService:
+        transport = FakeTransport()
+
+    class RecordingNeo4j:
+        def delete_all_personas(self) -> int:
+            recorded["batched_deletes"] += 1
+            return 0
+
+    args = argparse_module.Namespace(qdrant_collection="personas", es_index="personas")
+    cli._reset_indexes(FakeHttpService(), FakeHttpService(), RecordingNeo4j(), args)
+
+    assert recorded["batched_deletes"] == 1
