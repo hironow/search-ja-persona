@@ -12,13 +12,13 @@
 - Unit test suite under `tests/` passes (`just test`).
 - Integration tests against running emulators pass (`just integration`, `tests/test_integration_emulators.py`).
 - The QA flow works end-to-end on the locally generated 1k sample (`just qa-sample`; git-ignored, not checked in): `just qa` (= `qa-index` + `qa-search`) returns results for the default Japanese query.
-- 検索品質バー（`just eval`）: golden mean precision@5 **≥ 0.85** かつ self-retrieval recall@1 **≥ 0.99** を維持する（2026-08-27 ベースライン: 0.900 / 1.00 — `docs/research/2026-08-27-search-quality-baseline.md`）。
+- 検索品質バー（`just eval --check-thresholds` で機械強制）: golden mean precision@5（basic tier）**≥ 0.85** かつ self-retrieval recall@1 **≥ 0.90** かつ recall@10 **≥ 0.99** を維持する。recall@1 バーは 2026-08-27 に requester 裁定で 0.99 から改定 — 人名除外埋め込み（匿名化ベクトルは同質ペルソナを意図的に等価へ寄せるため、名前入り本人要約での 1 位は保証対象外、top-10 内は保証）。ベースライン: basic 0.983 / recall 0.92 / 1.00 — `docs/research/2026-08-27-search-quality-baseline.md` および同日の name-exclusion note。
 
 ## Scope
 ### In scope
 - CLI for download, index, search, and clearing emulators (`search_ja_persona/cli.py`).
 - Indexing pipeline (`PersonaRepository` → `PersonaIndexer`) and search orchestration with hit fusion (`PersonaSearchService`).
-- Embedding backends: hashed n-gram, SentenceTransformers, fastembed (`search_ja_persona/embeddings.py`) — 推奨プリセットは `ruri-v3-310m`（query/document プレフィックスの非対称埋め込み機構を含む）。
+- Embedding backends: hashed n-gram, SentenceTransformers, fastembed (`search_ja_persona/embeddings.py`) — 推奨プリセットは `ruri-v3-310m`（query/document プレフィックスの非対称埋め込み機構を含む）。埋め込み入力からは人名を除去する（strip-person-names-v1、保存テキストは原文のまま）。
 - Full-corpus operation: `just full-index`（シャード単位・冪等）による全量インデックスの再現。
 - Search-quality benchmark: `just eval`（golden precision@k + self-retrieval recall@k）。
 - marimo notebooks: feature catalog（`just notebook`）と persona panel（`just panel` / `panel-app` — 上位 M 件へのマルチモーダル質問と JSONL 出力）。

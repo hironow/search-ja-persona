@@ -339,6 +339,16 @@ def test_check_thresholds_passes_on_healthy_report() -> None:
     assert check_thresholds(_healthy_report()) == []
 
 
+def test_check_thresholds_accepts_the_amended_self_retrieval_bar() -> None:
+    # Ratified 2026-08-27 with the name-exclusion adoption: recall@1 >= 0.90
+    # and recall@10 >= 0.99 (anonymized vectors make same-vibe personas
+    # equivalent, so rank-1 by one's own named summary is no longer owed).
+    report = _healthy_report(
+        self_retrieval={"samples": 100, "recall_at_1": 0.92, "recall_at_10": 1.0}
+    )
+    assert check_thresholds(report) == []
+
+
 @pytest.mark.parametrize(
     ("overrides", "fragment"),
     [
@@ -359,11 +369,21 @@ def test_check_thresholds_passes_on_healthy_report() -> None:
             {
                 "self_retrieval": {
                     "samples": 100,
-                    "recall_at_1": 0.98,
+                    "recall_at_1": 0.88,
                     "recall_at_10": 1.0,
                 }
             },
             "recall@1",
+        ),
+        (
+            {
+                "self_retrieval": {
+                    "samples": 100,
+                    "recall_at_1": 0.95,
+                    "recall_at_10": 0.98,
+                }
+            },
+            "recall@10",
         ),
         ({"filtered": [], "filtered_mean_precision": None}, "filtered"),
     ],

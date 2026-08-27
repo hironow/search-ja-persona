@@ -248,7 +248,11 @@ def build_report(
 
 
 GOLDEN_BASIC_BAR = 0.85
-SELF_RETRIEVAL_RECALL_BAR = 0.99
+# Amended 2026-08-27 with the name-exclusion adoption: anonymized vectors
+# intentionally make same-vibe personas equivalent, so rank-1 by one's own
+# named summary is no longer owed; top-10 presence still is.
+SELF_RETRIEVAL_RECALL_1_BAR = 0.90
+SELF_RETRIEVAL_RECALL_10_BAR = 0.99
 
 
 def check_thresholds(report: dict[str, Any]) -> list[str]:
@@ -272,12 +276,18 @@ def check_thresholds(report: dict[str, Any]) -> list[str]:
         failures.append("filtered section empty (geo filters did not run)")
     self_retrieval = report.get("self_retrieval") or {}
     recall_1 = self_retrieval.get("recall_at_1")
-    if not self_retrieval.get("samples") or recall_1 is None:
+    recall_10 = self_retrieval.get("recall_at_10")
+    if not self_retrieval.get("samples") or recall_1 is None or recall_10 is None:
         failures.append("self-retrieval did not run")
-    elif recall_1 < SELF_RETRIEVAL_RECALL_BAR:
-        failures.append(
-            f"self-retrieval recall@1 {recall_1} < {SELF_RETRIEVAL_RECALL_BAR}"
-        )
+    else:
+        if recall_1 < SELF_RETRIEVAL_RECALL_1_BAR:
+            failures.append(
+                f"self-retrieval recall@1 {recall_1} < {SELF_RETRIEVAL_RECALL_1_BAR}"
+            )
+        if recall_10 < SELF_RETRIEVAL_RECALL_10_BAR:
+            failures.append(
+                f"self-retrieval recall@10 {recall_10} < {SELF_RETRIEVAL_RECALL_10_BAR}"
+            )
     return failures
 
 
