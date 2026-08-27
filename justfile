@@ -61,6 +61,11 @@ qa: qa-index qa-search
 eval:
     uv run --frozen python -m scripts.evaluate_search
 
+# Golden-set diagnostic: score each predicate against fused / keyword-only /
+# random rankings to verify the eval measures retrieval, not the predicate
+diagnose:
+    uv run --frozen python -m scripts.diagnose_golden
+
 # Index the full corpus one shard at a time. Each shard is a checkpoint:
 # uuid-keyed upserts make reruns idempotent, so on failure rerun from the
 # failed shard only (or rerun the whole recipe; completed shards just
