@@ -150,6 +150,26 @@ uv run python -m search_ja_persona.cli search \
 - `--verbose` surfaces per-backend hit statistics alongside the unified result list.
 - To reuse the last indexed embedder or persona field set, omit `--embedder` and `--persona-fields` (the CLI will read `.cache/index_metadata.json`).
 
+## Emulator Data Persistence
+
+All three emulators store data in named Docker volumes
+(`emulator_qdrant_data`, `emulator_elasticsearch_data`,
+`emulator_neo4j_data`), so indexed data survives `docker compose stop`,
+`docker compose down`, Docker Desktop restarts, and OS reboots. A
+full-corpus index occupies roughly 15GB across the volumes.
+
+Data is destroyed only by:
+
+- `docker compose down -v` — the `-v` flag deletes named volumes
+- `docker volume prune` / `docker system prune --volumes`
+- Docker Desktop "Clean / Purge data" or a factory reset
+
+If the volumes are ever lost, the index is reproducible from the dataset:
+`just full-index` rebuilds the full corpus in about an hour on a GPU
+machine. On Windows the volumes live inside Docker Desktop's WSL2 virtual
+disk, which grows with the data but does not shrink automatically when it
+is deleted.
+
 ## Maintenance Utilities
 
 - `uv run python -m search_ja_persona.cli clear-emulators` drops the Qdrant collection, Elasticsearch index, Neo4j persona nodes, and deletes cached metadata (asks for confirmation).
