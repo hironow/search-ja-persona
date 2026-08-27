@@ -27,6 +27,7 @@ from search_ja_persona.evaluation import (
     precision_at_k,
     recall_at_k,
 )
+from search_ja_persona.services import RequestDescriptor
 
 GOLDEN_PATH = Path(__file__).with_name("golden_queries.json")
 SELF_RETRIEVAL_SHARD = Path(
@@ -75,7 +76,22 @@ def run_golden(
         results = app.search(entry["query"], limit=k)
         score = precision_at_k(results, entry["expect"], k=k)
         per_query.append(
-            {"query": entry["query"], "tier": entry["tier"], "precision_at_k": score}
+            {
+                "query": entry["query"],
+                "tier": entry["tier"],
+                "precision_at_k": score,
+                # Canary fields: dead graph context and a dead keyword leg
+                # were both silent for a long time before they were found.
+                "results_returned": len(results),
+                "results_with_context": sum(
+                    1
+                    for hit in results
+                    if (hit.get("context") or {}).get("relationships")
+                ),
+                "keyword_sourced": any(
+                    "keyword" in (hit.get("sources") or []) for hit in results
+                ),
+            }
         )
         print(f"precision@{k} {score:.2f}  [{entry['tier']}]  {entry['query']}")
 
@@ -101,6 +117,38 @@ def run_golden(
             f"{filters['prefecture']}]  {entry['query']}"
         )
     return per_query, filtered_rows
+
+
+def collect_store_counts(app: PersonaApplication) -> dict[str, int] | None:
+    """Persona counts from all three stores (None when any is unreachable)."""
+
+    try:
+        qdrant = app.qdrant.transport.request(
+            RequestDescriptor(
+                method="GET", path=f"/collections/{app.qdrant.collection}"
+            )
+        )
+        elasticsearch = app.elasticsearch.transport.request(
+            RequestDescriptor(method="GET", path=f"/{app.elasticsearch.index}/_count")
+        )
+        neo4j = app.neo4j.transport.request(
+            RequestDescriptor(
+                method="POST",
+                path="/db/neo4j/tx/commit",
+                body={
+                    "statements": [{"statement": "MATCH (p:Persona) RETURN count(p)"}]
+                },
+            )
+        )
+    except RuntimeError:
+        return None
+    return {
+        "qdrant": int(qdrant.get("result", {}).get("points_count", 0)),
+        "elasticsearch": int(elasticsearch.get("count", 0)),
+        "neo4j": int(
+            neo4j.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
+        ),
+    }
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -151,6 +199,7 @@ def main(argv: list[str] | None = None) -> None:
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
         elapsed_seconds=elapsed,
         fusion={"rrf_weights": list(config.rrf_weights)},
+        store_counts=collect_store_counts(app),
     )
 
     by_tier = report["golden_mean_precision_by_tier"]
@@ -168,7 +217,9 @@ def main(argv: list[str] | None = None) -> None:
         f"{filtered_summary}"
         f"self-retrieval recall@1: {report['self_retrieval']['recall_at_1']} "
         f"recall@10: {report['self_retrieval']['recall_at_10']} "
-        f"(n={sampled}) | {elapsed:.1f}s"
+        f"(n={sampled}) | ctx {report['context_coverage']} | "
+        f"kw-rate {report['keyword_contribution_rate']} | "
+        f"stores {report['store_counts']} | {elapsed:.1f}s"
     )
 
     out_dir = Path("outputs")

@@ -330,6 +330,9 @@ def _healthy_report(**overrides: object) -> dict:
         "filtered": [{"query": "q"}],
         "filtered_mean_precision": 1.0,
         "self_retrieval": {"samples": 100, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        "context_coverage": 1.0,
+        "keyword_contribution_rate": 0.7,
+        "store_counts": {"qdrant": 100, "elasticsearch": 100, "neo4j": 100},
     }
     report.update(overrides)
     return report
@@ -360,6 +363,15 @@ def test_check_thresholds_accepts_the_amended_self_retrieval_bar() -> None:
             "hard",
         ),
         ({"filtered_mean_precision": 0.85}, "filtered"),
+        ({"context_coverage": 0.98}, "context"),
+        ({"context_coverage": None}, "context"),
+        ({"keyword_contribution_rate": 0.0}, "keyword"),
+        ({"keyword_contribution_rate": None}, "keyword"),
+        ({"store_counts": None}, "store"),
+        (
+            {"store_counts": {"qdrant": 100, "elasticsearch": 99, "neo4j": 100}},
+            "store",
+        ),
         (
             {
                 "self_retrieval": {
@@ -412,3 +424,57 @@ def test_build_report_records_fusion_config() -> None:
     )
 
     assert report["fusion"] == {"rrf_weights": [2.0, 1.0]}
+
+
+def test_build_report_aggregates_canary_metrics() -> None:
+    rows = [
+        {
+            "query": "a",
+            "tier": "basic",
+            "precision_at_k": 1.0,
+            "results_returned": 5,
+            "results_with_context": 5,
+            "keyword_sourced": True,
+        },
+        {
+            "query": "b",
+            "tier": "hard",
+            "precision_at_k": 0.6,
+            "results_returned": 5,
+            "results_with_context": 4,
+            "keyword_sourced": False,
+        },
+    ]
+
+    report = build_report(
+        per_query=rows,
+        self_retrieval={"samples": 1, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        embedder="ruri-v3-310m",
+        k=5,
+        generated_at="2026-08-27T00:00:00+00:00",
+        elapsed_seconds=1.0,
+        store_counts={"qdrant": 10, "elasticsearch": 10, "neo4j": 10},
+    )
+
+    assert report["context_coverage"] == 0.9
+    assert report["keyword_contribution_rate"] == 0.5
+    assert report["store_counts"] == {
+        "qdrant": 10,
+        "elasticsearch": 10,
+        "neo4j": 10,
+    }
+
+
+def test_build_report_canaries_default_to_none() -> None:
+    report = build_report(
+        per_query=[{"query": "a", "tier": "basic", "precision_at_k": 1.0}],
+        self_retrieval={"samples": 1, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        embedder="e",
+        k=5,
+        generated_at="t",
+        elapsed_seconds=1.0,
+    )
+
+    assert report["context_coverage"] is None
+    assert report["keyword_contribution_rate"] is None
+    assert report["store_counts"] is None

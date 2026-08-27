@@ -123,9 +123,18 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   `--check-thresholds` green. See
   `docs/research/2026-08-27-golden-maintenance.md`.
 
+- **#51 ratified bars**: hard ≥ 0.55 and filtered geo ≥ 0.90 mechanized.
+- **canary metrics (branch `feat/canary-metrics`)**: three silent-death
+  canaries join the machine-enforced gate — 3-store count agreement,
+  graph-context coverage ≥ 0.99, keyword-leg contribution > 0 (each
+  motivated by a real incident found this session: the 999,995 Neo4j
+  drift, the months-dead graph context of #41, and the pre-RRF dead
+  keyword leg). Live baseline: counts 1M×3, coverage 1.00, kw-rate 1.00.
+
 ## In Progress
-- PR for `feat/ratified-bars` (hard/filtered bar mechanization) — merge
-  on green per the session's per-PR agreement.
+- PR for `feat/canary-metrics` — merge on green per the session's
+  per-PR agreement. Next: name-lookup recall baseline (fixed 40-name
+  set) as its own PR.
 
 ## Next Actions
 1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
