@@ -8,6 +8,11 @@ default: help
 help:
     @just --list --unsorted
 
+# Aggregate local gate (mirrors what git hooks + CI enforce today:
+# prek hooks and the unit suite). mypy/semgrep join here when the full
+# agent baseline lands (tracked in docs/handover.md).
+check: pre-commit test
+
 format:
     uv run --frozen ruff format .
 
@@ -57,9 +62,10 @@ qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" 
 qa: qa-index qa-search
 
 # Search-quality benchmark: golden-query precision@k + self-retrieval
-# recall@k against the live index (report lands in outputs/)
-eval:
-    uv run --frozen python -m scripts.evaluate_search
+# recall@k against the live index (report lands in outputs/). Extra flags
+# pass through, e.g. `just eval --check-thresholds --rrf-weights 2,1`
+eval *flags:
+    uv run --frozen python -m scripts.evaluate_search {{flags}}
 
 # Golden-set diagnostic: score each predicate against fused / keyword-only /
 # random rankings to verify the eval measures retrieval, not the predicate
