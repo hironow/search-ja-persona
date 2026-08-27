@@ -434,3 +434,93 @@ def test_neo4j_delete_all_personas_batches_until_empty() -> None:
     assert "LIMIT $batch_size" in first["statement"]
     assert "DETACH DELETE" in first["statement"]
     assert first["parameters"] == {"batch_size": 2}
+
+
+def test_search_deduplicates_hyphenated_vector_ids_against_es_ids() -> None:
+    # Qdrant canonicalizes UUID point ids to the hyphenated form, while the
+    # Elasticsearch _id keeps the dataset's hyphen-less uuid. The same
+    # persona arriving through both backends must fuse into one result.
+    qdrant = Mock()
+    qdrant.search.return_value = [
+        {
+            "id": "63f4de5a-14e7-4acd-a918-16138ef70dfe",
+            "score": 0.9,
+            "payload": {
+                "uuid": "63f4de5a14e74acda91816138ef70dfe",
+                "text": "東京の介護リーダー",
+                "prefecture": "東京都",
+                "region": "関東地方",
+                "persona_fields": {"persona": "東京の介護リーダー"},
+            },
+        }
+    ]
+    elastic = Mock()
+    elastic.search.return_value = {
+        "hits": {
+            "hits": [
+                {
+                    "_id": "63f4de5a14e74acda91816138ef70dfe",
+                    "_score": 5.0,
+                    "_source": {
+                        "uuid": "63f4de5a14e74acda91816138ef70dfe",
+                        "text": "東京の介護リーダー",
+                        "prefecture": "東京都",
+                        "region": "関東地方",
+                        "persona": "東京の介護リーダー",
+                    },
+                }
+            ]
+        }
+    }
+    neo4j = Mock()
+    neo4j.fetch_persona_context.return_value = {"relationships": []}
+
+    service = PersonaSearchService(
+        embedder=HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3)),
+        qdrant=qdrant,
+        elasticsearch=elastic,
+        neo4j=neo4j,
+        persona_fields=("persona",),
+    )
+
+    results = service.search("介護", limit=5)
+
+    assert len(results) == 1
+    assert results[0]["uuid"] == "63f4de5a14e74acda91816138ef70dfe"
+
+
+def test_search_fetches_context_with_dataset_uuid_format() -> None:
+    # Neo4j persona nodes are keyed by the dataset's hyphen-less uuid; the
+    # context lookup must not leak Qdrant's hyphenated point id.
+    qdrant = Mock()
+    qdrant.search.return_value = [
+        {
+            "id": "63f4de5a-14e7-4acd-a918-16138ef70dfe",
+            "score": 0.9,
+            "payload": {
+                "uuid": "63f4de5a14e74acda91816138ef70dfe",
+                "text": "東京の介護リーダー",
+                "prefecture": "東京都",
+                "region": "関東地方",
+                "persona_fields": {"persona": "東京の介護リーダー"},
+            },
+        }
+    ]
+    elastic = Mock()
+    elastic.search.return_value = {"hits": {"hits": []}}
+    neo4j = Mock()
+    neo4j.fetch_persona_context.return_value = {"relationships": []}
+
+    service = PersonaSearchService(
+        embedder=HashedNgramEmbedder(dimension=8, ngram_sizes=(2, 3)),
+        qdrant=qdrant,
+        elasticsearch=elastic,
+        neo4j=neo4j,
+        persona_fields=("persona",),
+    )
+
+    service.search("介護", limit=1)
+
+    neo4j.fetch_persona_context.assert_called_once_with(
+        "63f4de5a14e74acda91816138ef70dfe"
+    )
