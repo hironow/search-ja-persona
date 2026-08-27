@@ -55,8 +55,8 @@ class PersonaSearchService:
         """Fuse both retrieval legs with weighted RRF.
 
         Ordering is fully specified: RRF score desc, then number of source
-        legs desc, then best single-leg rank asc, then uuid asc — so results
-        never depend on dict insertion order. ``score`` keeps its historical
+        legs desc, then best single-leg rank asc, then keyword-leg presence,
+        then uuid asc — so results never depend on dict insertion order. ``score`` keeps its historical
         meaning (Qdrant score when the vector leg saw the hit, otherwise the
         Elasticsearch ``_score``); ranking uses ``rrf_score``. Neo4j context
         is fetched only for the returned top-``limit``.
@@ -99,7 +99,7 @@ class PersonaSearchService:
             keyword_docs[uuid] = hit
 
         vector_weight, keyword_weight = self.rrf_weights
-        fused: list[tuple[tuple[float, int, int, str], str]] = []
+        fused: list[tuple[tuple[float, int, int, int, str], str]] = []
         for uuid in set(vector_ranks) | set(keyword_ranks):
             rrf_score = 0.0
             source_count = 0
@@ -112,7 +112,17 @@ class PersonaSearchService:
                 rrf_score += keyword_weight / (RRF_K + keyword_ranks[uuid])
                 source_count += 1
                 best_rank = min(best_rank, keyword_ranks[uuid])
-            fused.append(((-rrf_score, -source_count, best_rank, uuid), uuid))
+            # Exact-rank ties across legs favor the keyword hit: a BM25
+            # rank-1 is a strong lexical match (names, rare terms), while
+            # a vector rank-1 among a million near-duplicates is far less
+            # specific.
+            keyword_preference = 0 if uuid in keyword_ranks else 1
+            fused.append(
+                (
+                    (-rrf_score, -source_count, best_rank, keyword_preference, uuid),
+                    uuid,
+                )
+            )
         fused.sort(key=lambda item: item[0])
 
         stats: dict[str, Any] = {
