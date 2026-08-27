@@ -79,6 +79,10 @@ notebook:
 panel:
     uv run --frozen --with "marimo[sql]" marimo edit marimo/persona_panel.py
 
+# Persona panel as a read-mode app (no code shown, forms only)
+panel-app:
+    uv run --frozen --with "marimo[sql]" marimo run marimo/persona_panel.py
+
 # Headless-run the catalog notebook and export static HTML (validation/preview)
 notebook-export:
     uv run --frozen --with "marimo[sql]" marimo export html marimo/catalog.py -o marimo/catalog.html

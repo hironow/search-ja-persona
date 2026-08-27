@@ -16,15 +16,15 @@ def _(mo):
     mo.md("""
     # 🗳️ Persona Panel — 100万人の街頭アンケート
 
-    Fused search で **上位 M 件のペルソナ**を選び、テキスト（＋任意で画像）の
-    入力について、各ペルソナに **なりきり回答** させます。推論はローカルの
-    Ollama、結果は **JSONL** として `outputs/` に書き出されます。
+    100万ペルソナの検索インデックスから **上位 M 人** を回答者に選び、
+    テキスト（＋任意で画像）の問いかけに **なりきり回答** してもらいます。
+    推論はローカル Ollama、結果は画面のテーブルと **JSONL**
+    （`outputs/persona_panel-*.jsonl`）に記録されます。
 
-    1. パネル選定 — 検索クエリで回答者 M 人を選ぶ
-    2. 入力 — 質問テキストと、任意の画像（画像には vision 対応モデルが必要）
-    3. 実行 — 1 人ずつ Ollama で回答を生成し、JSONL に記録
+    使い方: ① モデルを選ぶ → ② 回答者を決める → ③ 問いかけを作る
+    （例題「きのこの山 vs たけのこの里」をそのまま選べます）→
+    ④ **パネルに聞く**
     """)
-    return
 
 
 @app.cell
@@ -63,6 +63,18 @@ def _():
     OLLAMA_HOST = "127.0.0.1"
     OLLAMA_PORT = 11434
     DEFAULT_MODEL = "huihui_ai/Qwen3.8-abliterated:latest"
+
+    QUESTION_EXAMPLES = {
+        "例題: きのこの山 vs たけのこの里": (
+            "きのこの山とたけのこの里、どちらが好きですか？理由も添えて答えてください。"
+        ),
+        "自由入力": "",
+    }
+    EXAMPLE_IMAGE_PATH = ROOT / "marimo" / "assets" / "kinoko-vs-takenoko.jpg"
+    IMAGE_NONE = "なし（テキストのみ）"
+    IMAGE_EXAMPLE = "例題画像: きのこ vs たけのこ実物写真（CC0）"
+    IMAGE_UPLOAD = "アップロードした画像を使う"
+
     panel_app_cache: dict = {}
     ANSWER_SCHEMA = {
         "type": "object",
@@ -77,11 +89,16 @@ def _():
         ApplicationConfig,
         DEFAULT_MODEL,
         EMBEDDER_PRESETS,
+        EXAMPLE_IMAGE_PATH,
+        IMAGE_EXAMPLE,
+        IMAGE_NONE,
+        IMAGE_UPLOAD,
         INDEX_METADATA_PATH,
         OLLAMA_HOST,
         OLLAMA_PORT,
         OUTPUT_DIR,
         PersonaApplication,
+        QUESTION_EXAMPLES,
         RequestDescriptor,
         SimpleHttpTransport,
         UTC,
@@ -122,10 +139,11 @@ def _(
         )
         _view = mo.vstack(
             [
+                mo.md("## ① モデル"),
                 model_choice,
                 mo.md(
-                    "_画像を入力に使う場合は vision 対応モデル"
-                    "（例: `qwen3-vl:*`）を選んでください。_"
+                    "_画像を使う場合は vision 対応モデル（例: `qwen3-vl:*`）を"
+                    "選んでください。_"
                 ),
             ]
         )
@@ -134,7 +152,7 @@ def _(
         _view = mo.callout(
             mo.md(
                 "Ollama に接続できません（`127.0.0.1:11434`）。"
-                "Ollama を起動してからノートブックを再実行してください。"
+                "Ollama を起動してからページを再読み込みしてください。"
             ),
             kind="warn",
         )
@@ -146,39 +164,89 @@ def _(
 def _(mo):
     panel_query = mo.ui.text(
         value="お菓子やチョコレートが好きな人",
-        label="パネル選定クエリ（この検索の上位 M 人が回答者になる）",
+        label="どんなペルソナを集める？（検索クエリの上位が回答者になる）",
         full_width=True,
     )
-    panel_m = mo.ui.slider(start=1, stop=20, step=1, value=3, label="M（回答者数）")
+    panel_m = mo.ui.slider(start=1, stop=20, step=1, value=3, label="何人に聞く？（M）")
+    mo.vstack([mo.md("## ② 回答者（パネル）"), panel_query, panel_m])
+    return panel_m, panel_query
+
+
+@app.cell
+def _(QUESTION_EXAMPLES, mo):
+    question_example = mo.ui.dropdown(
+        options=list(QUESTION_EXAMPLES.keys()),
+        value=next(iter(QUESTION_EXAMPLES.keys())),
+        label="質問プリセット",
+    )
+    mo.vstack([mo.md("## ③ 問いかけ"), question_example])
+    return (question_example,)
+
+
+@app.cell
+def _(QUESTION_EXAMPLES, mo, question_example):
     input_text = mo.ui.text_area(
-        value="きのこの山とたけのこの里、どちらが好きですか？理由も添えて答えてください。",
-        label="質問（テキスト入力）",
+        value=QUESTION_EXAMPLES.get(question_example.value, ""),
+        label="質問テキスト（プリセットを選ぶと自動入力。自由に編集可）",
         full_width=True,
+    )
+    input_text
+    return (input_text,)
+
+
+@app.cell
+def _(IMAGE_EXAMPLE, IMAGE_NONE, IMAGE_UPLOAD, mo):
+    image_source = mo.ui.radio(
+        options=[IMAGE_NONE, IMAGE_EXAMPLE, IMAGE_UPLOAD],
+        value=IMAGE_NONE,
+        label="画像入力",
     )
     input_image = mo.ui.file(
         filetypes=[".png", ".jpg", ".jpeg", ".webp"],
         kind="area",
-        label="画像入力（任意・マルチモーダル）",
+        label="（「アップロードした画像を使う」を選んだ場合はここに投入）",
     )
-    run_panel = mo.ui.run_button(label="パネルに聞く")
-    mo.vstack([panel_query, panel_m, input_text, input_image, run_panel])
-    return input_image, input_text, panel_m, panel_query, run_panel
+    mo.vstack([image_source, input_image])
+    return image_source, input_image
 
 
 @app.cell
-def _(input_image, mo):
-    if input_image.value:
+def _(
+    EXAMPLE_IMAGE_PATH,
+    IMAGE_EXAMPLE,
+    IMAGE_UPLOAD,
+    image_source,
+    input_image,
+    mo,
+):
+    resolved_image = None
+    if image_source.value == IMAGE_EXAMPLE and EXAMPLE_IMAGE_PATH.exists():
+        resolved_image = (EXAMPLE_IMAGE_PATH.name, EXAMPLE_IMAGE_PATH.read_bytes())
+    elif image_source.value == IMAGE_UPLOAD and input_image.value:
         _f = input_image.value[0]
-        image_preview = mo.vstack(
+        resolved_image = (_f.name, _f.contents)
+
+    if resolved_image:
+        _preview = mo.vstack(
             [
-                mo.md(f"添付画像: `{_f.name}` ({len(_f.contents):,} bytes)"),
-                mo.image(_f.contents, width=320),
+                mo.md(
+                    f"この画像を見せます: `{resolved_image[0]}` "
+                    f"({len(resolved_image[1]):,} bytes)"
+                ),
+                mo.image(resolved_image[1], width=360),
             ]
         )
     else:
-        image_preview = mo.md("_画像なし（テキストのみで質問します）_")
-    image_preview
-    return
+        _preview = mo.md("_画像なし（テキストのみで質問します）_")
+    _preview
+    return (resolved_image,)
+
+
+@app.cell
+def _(mo):
+    run_panel = mo.ui.run_button(label="🗳️ パネルに聞く")
+    mo.vstack([mo.md("## ④ 実行"), run_panel])
+    return (run_panel,)
 
 
 @app.cell
@@ -196,7 +264,6 @@ def _(
     UTC,
     base64,
     datetime,
-    input_image,
     input_text,
     json,
     mo,
@@ -205,17 +272,22 @@ def _(
     panel_app_cache: dict,
     panel_m,
     panel_query,
+    resolved_image,
     run_io,
     run_panel,
     time,
 ):
     mo.stop(
         not run_panel.value,
-        mo.md("_「パネルに聞く」を押すと実行します（M×数十秒かかります）。_"),
+        mo.md("_「パネルに聞く」を押すと実行します（1 人あたり数秒〜数十秒）。_"),
     )
     mo.stop(
         not ollama_up,
         mo.callout(mo.md("Ollama が起動していません。"), kind="warn"),
+    )
+    mo.stop(
+        not input_text.value.strip(),
+        mo.callout(mo.md("質問テキストを入力してください。"), kind="warn"),
     )
 
     _preset = "ruri-v3-310m"
@@ -239,11 +311,11 @@ def _(
     )
 
     _images_b64 = (
-        [base64.b64encode(input_image.value[0].contents).decode("ascii")]
-        if input_image.value
+        [base64.b64encode(resolved_image[1]).decode("ascii")]
+        if resolved_image
         else None
     )
-    _image_name = input_image.value[0].name if input_image.value else None
+    _image_name = resolved_image[0] if resolved_image else None
     _model = model_choice.value
     _ollama = SimpleHttpTransport(OLLAMA_HOST, OLLAMA_PORT, timeout=600.0)
 
@@ -253,6 +325,8 @@ def _(
         mo.status.progress_bar(_panelists, title="パネル回答を生成中", show_eta=True),
         start=1,
     ):
+        _fields = _persona.get("persona_fields") or {}
+        _profile = (_fields.get("persona") or _persona.get("text") or "").strip()
         _system = (
             "あなたは以下のペルソナの人物です。この人物になりきって、一人称で、"
             "その人らしい視点・語彙で回答してください。回答(answer)は日本語で"
@@ -308,6 +382,7 @@ def _(
                 "uuid": _persona.get("uuid"),
                 "prefecture": _persona.get("prefecture"),
                 "region": _persona.get("region"),
+                "persona": _profile,
                 "verdict": _parsed.get("verdict", ""),
                 "answer": _parsed.get("answer", ""),
                 "latency_ms": round((time.perf_counter() - _t0) * 1000),
@@ -325,29 +400,40 @@ def _(
 
     mo.vstack(
         [
+            mo.md("## 結果"),
             mo.hstack(
                 [
                     mo.stat(_model, label="model"),
-                    mo.stat(len(_records), label="panelists"),
-                    mo.stat(f"{_total_s:.1f}s", label="total"),
+                    mo.stat(len(_records), label="回答者"),
+                    mo.stat(f"{_total_s:.1f}s", label="所要時間"),
                     mo.stat("あり" if _image_name else "なし", label="画像"),
                 ]
             ),
             mo.ui.table(
                 [
                     {
-                        "rank": record["rank"],
-                        "prefecture": record["prefecture"],
-                        "verdict": record["verdict"],
-                        "answer": record["answer"][:160],
+                        "#": record["rank"],
+                        "地域": f"{record['prefecture']}（{record['region']}）",
+                        "ペルソナ": record["persona"],
+                        "結論": record["verdict"],
+                        "回答": record["answer"],
                         "ms": record["latency_ms"],
                     }
                     for record in _records
                 ],
                 selection=None,
                 show_search=False,
-                column_widths={"verdict": 130, "answer": 420},
-                label=f"パネル回答（JSONL: {_jsonl_path.relative_to(_jsonl_path.parents[1])}）",
+                wrapped_columns=["ペルソナ", "回答"],
+                column_widths={
+                    "#": 40,
+                    "地域": 130,
+                    "ペルソナ": 300,
+                    "結論": 110,
+                    "回答": 340,
+                    "ms": 70,
+                },
+                page_size=20,
+                label=f"パネル回答（JSONL: outputs/{_jsonl_path.name}）",
             ),
             mo.download(
                 data=(_jsonl_text + "\n").encode("utf-8"),
@@ -356,7 +442,6 @@ def _(
             ),
         ]
     )
-    return
 
 
 @app.cell
@@ -367,7 +452,7 @@ def _(mo):
                 """
                 1 行 = 1 ペルソナの回答。フィールド:
                 `timestamp, model, panel_query, input_text, image, rank, score,
-                uuid, prefecture, region, verdict, answer, latency_ms`。
+                uuid, prefecture, region, persona, verdict, answer, latency_ms`。
                 出力先は `outputs/persona_panel-<UTC時刻>.jsonl`（git 管理外）。
                 """
             ),
@@ -377,16 +462,15 @@ def _(mo):
                 +数十秒）。M を大きくする前に小さな M で試してください。
                 """
             ),
-            "🖼️ 画像入力": mo.md(
+            "🖼️ 画像とライセンス": mo.md(
                 """
-                画像を添付した場合は vision 対応モデル（`qwen3-vl:*` など）を
-                選択してください。テキスト専用モデルは画像を無視するか、
-                エラーになります。
+                画像を使う場合は vision 対応モデル（`qwen3-vl:*` など）を選択して
+                ください。例題画像は Wikimedia Commons の CC0 写真です
+                （出典・注意事項は `marimo/assets/CREDITS.md`）。
                 """
             ),
         }
     )
-    return
 
 
 if __name__ == "__main__":
