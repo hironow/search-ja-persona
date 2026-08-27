@@ -34,6 +34,11 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
 9. `build(uv)` Windows pulls CUDA torch (2.13.0+cu130) from the explicit
    pytorch.org index; Linux/macOS keep PyPI wheels. torch declared as a
    direct dependency so `tool.uv.sources` applies.
+10. `feat(embeddings)` + `perf(indexer)` batch embedding: `embed_many` on
+    the Embedder protocol (all three backends) and one batched encode per
+    ingest batch. Measured: 9.7ms → 0.24ms per text on the RTX 4090;
+    `just qa` 40s → 31s (startup + per-persona Neo4j merges dominate the
+    rest).
 
 ## Next Actions
 1. Human: review and push `fix/windows-portability`, open a PR. The Dependabot
@@ -42,12 +47,10 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
    emulator non-goal vs. the vendored stack — is still unresolved.
 3. Consider a `windows-latest` leg in `ci.yaml` so Windows support cannot
    regress (not added here: unverifiable locally while push is forbidden).
-4. Batch embedding in `PersonaIndexer`/`Embedder`: the indexer encodes one
-   record at a time, so GPU gains almost nothing end to end (`just qa`
-   ~40s on GPU ≈ CPU). Measured on the RTX 4090: single-item 9.7ms/text
-   vs batched (64) 0.24ms/text — a batch API would cut full-corpus
-   embedding from hours to minutes. Drive it TDD (protocol extension with
-   fallback for hashed/fastembed backends).
+4. Next ingest bottleneck: `Neo4jService.merge_persona` issues one HTTP
+   transaction per persona (~3ms each → ~50min per 1M rows). Batching the
+   Cypher MERGEs per ingest batch (single tx/commit with UNWIND) would
+   remove it. Embedding is already batched (`embed_many`).
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
