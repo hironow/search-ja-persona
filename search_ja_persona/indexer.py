@@ -40,9 +40,11 @@ class PersonaIndexer:
 
     def _process_batch(self, batch: list[dict]) -> None:
         composed = [self._compose_text(persona) for persona in batch]
-        # One model call per batch: single-item embed() calls would leave
+        # One model call per batch: single-item embed calls would leave
         # GPU/ONNX backends dominated by per-call overhead.
-        vectors = self.embedder.embed_many([aggregated for aggregated, _ in composed])
+        vectors = self.embedder.embed_documents(
+            [aggregated for aggregated, _ in composed]
+        )
         qdrant_points = [
             self._build_qdrant_point(persona, aggregated, per_field, vector)
             for persona, (aggregated, per_field), vector in zip(

@@ -31,7 +31,7 @@ class PersonaSearchService:
                 else results
             )
 
-        query_vector = self.embedder.embed(query)
+        query_vector = self.embedder.embed_query(query)
         vector_hits = self.qdrant.search(query_vector, limit=limit)
         keyword_response = self.elasticsearch.search(query, limit=limit)
         keyword_hits = keyword_response.get("hits", {}).get("hits", [])

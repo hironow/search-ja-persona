@@ -498,6 +498,9 @@ def _build_embedder(
             model_name=model_name,
             device=args.embedder_device,
             normalize_embeddings=args.embedder_normalize,
+            query_prefix=preset.get("query_prefix", ""),
+            document_prefix=preset.get("document_prefix", ""),
+            encode_batch_size=preset.get("encode_batch_size"),
         )
     elif embedder_type == "fast":
         embedder = FastEmbedder(
@@ -506,6 +509,8 @@ def _build_embedder(
             if args.fastembed_cache_dir
             else None,
             normalize_embeddings=args.embedder_normalize,
+            query_prefix=preset.get("query_prefix", ""),
+            document_prefix=preset.get("document_prefix", ""),
         )
     else:
         ngram_sizes = _parse_ngram_sizes(args.ngram_sizes)

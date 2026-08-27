@@ -68,17 +68,23 @@ class PersonaApplication:
             embedder_type = config.embedder
             model_name = config.sentence_model
 
+        preset_options = preset or {}
         if embedder_type == "sentence":
             embedder = SentenceTransformerEmbedder(
                 model_name=model_name,
                 device=config.sentence_device,
                 normalize_embeddings=config.normalize_embeddings,
+                query_prefix=preset_options.get("query_prefix", ""),
+                document_prefix=preset_options.get("document_prefix", ""),
+                encode_batch_size=preset_options.get("encode_batch_size"),
             )
         elif embedder_type == "fast":
             embedder = FastEmbedder(
                 model_name=model_name,
                 cache_dir=config.fastembed_cache_dir,
                 normalize_embeddings=config.normalize_embeddings,
+                query_prefix=preset_options.get("query_prefix", ""),
+                document_prefix=preset_options.get("document_prefix", ""),
             )
         else:
             embedder = HashedNgramEmbedder(

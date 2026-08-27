@@ -381,3 +381,36 @@ def test_neo4j_ensure_constraints_creates_uniqueness_constraints() -> None:
     assert "(p:Persona) REQUIRE p.uuid" in joined
     assert "(pref:Prefecture) REQUIRE pref.name" in joined
     assert "(r:Region) REQUIRE r.name" in joined
+
+
+def test_search_service_embeds_query_with_query_semantics() -> None:
+    class RecordingEmbedder:
+        dimension = 4
+
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def embed_query(self, text: str) -> list[float]:
+            self.queries.append(text)
+            return [0.0] * self.dimension
+
+        def embed(self, text: str) -> list[float]:
+            raise AssertionError("search must embed via embed_query")
+
+    embedder = RecordingEmbedder()
+    qdrant = Mock()
+    qdrant.search.return_value = []
+    elastic = Mock()
+    elastic.search.return_value = {"hits": {"hits": []}}
+
+    service = PersonaSearchService(
+        embedder=embedder,
+        qdrant=qdrant,
+        elasticsearch=elastic,
+        neo4j=Mock(),
+        persona_fields=("persona",),
+    )
+
+    service.search("介護", limit=1)
+
+    assert embedder.queries == ["介護"]
