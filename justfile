@@ -74,6 +74,15 @@ full-index embedder="ruri-v3-310m" batch_size="512":
 notebook:
     uv run --frozen --with "marimo[sql]" marimo edit marimo/catalog.py
 
+# Open the persona-panel notebook (top-M personas answer a multimodal input
+# via local Ollama; answers land in outputs/*.jsonl)
+panel:
+    uv run --frozen --with "marimo[sql]" marimo edit marimo/persona_panel.py
+
+# Persona panel as a read-mode app (no code shown, forms only)
+panel-app:
+    uv run --frozen --with "marimo[sql]" marimo run marimo/persona_panel.py
+
 # Headless-run the catalog notebook and export static HTML (validation/preview)
 notebook-export:
     uv run --frozen --with "marimo[sql]" marimo export html marimo/catalog.py -o marimo/catalog.html
