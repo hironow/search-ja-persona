@@ -132,9 +132,12 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   keyword leg). Live baseline: counts 1M×3, coverage 1.00, kw-rate 1.00.
 
 ## In Progress
-- PR for `feat/canary-metrics` — merge on green per the session's
-  per-PR agreement. Next: name-lookup recall baseline (fixed 40-name
-  set) as its own PR.
+- PR for `feat/name-lookup-baseline` — `just eval-names` on a fixed
+  stratified 40-name set: recall@1 **0.725** / recall@10 0.900. Misses
+  are common-surname + short-given-name cases (CJK unigram BM25 limit).
+  Proposed floor bar: recall@1 ≥ 0.70 (requester word pending);
+  improvement candidate: an extracted-name keyword field in ES. See
+  `docs/research/2026-08-27-name-lookup-baseline.md`.
 
 ## Next Actions
 1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
