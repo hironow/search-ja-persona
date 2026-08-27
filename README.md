@@ -99,8 +99,17 @@ Override the default count with `--limit` when needed (for example, `--limit 200
 Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` (requires the dataset submodule checked out — see [Getting the Dataset](#getting-the-dataset)) using a SentenceTransformer preset. `ruri-v3-310m` (cl-nagoya/ruri-v3-310m, 768 dims, Apache-2.0) is the recommended preset for Japanese relevance: its tokenizer avoids the ~23% document truncation multilingual-e5 suffers on this corpus, and the preset applies the `検索クエリ: `/`検索文書: ` prefixes and its measured encode batch cap automatically. Adjust `--batch-size` (the ingest batch) to match available memory; leaving `--limit` unset consumes all rows. Emulator hosts/ports default to the local stack, so no host flags are needed.
 
 ```bash
+just full-index
+```
+
+This indexes the eight parquet shards one at a time (each shard is a
+checkpoint: uuid-keyed upserts make reruns idempotent, so a failed run
+resumes by rerunning from the failed shard). Equivalent single-shard
+command:
+
+```bash
 uv run python -m search_ja_persona.cli index \
-    --dataset datasets/Nemotron-Personas-Japan/data \
+    --dataset datasets/Nemotron-Personas-Japan/data/train-00000-of-00008.parquet \
     --batch-size 512 \
     --embedder ruri-v3-310m \
     --persona-fields all
@@ -162,6 +171,7 @@ The project uses [just](https://just.systems) for task automation:
 | `just qa-index embedder="mini-lm"` | Index QA sample |
 | `just qa-search query="..."` | Search QA sample |
 | `just qa` | Run qa-index + qa-search |
+| `just full-index` | Index the full corpus shard by shard (ruri-v3-310m) |
 
 ## Troubleshooting Checklist
 
