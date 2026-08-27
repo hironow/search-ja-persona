@@ -71,6 +71,7 @@ def _():
         "自由入力": "",
     }
     EXAMPLE_IMAGE_PATH = ROOT / "marimo" / "assets" / "kinoko-vs-takenoko.jpg"
+    ROOT_EXAMPLE_JSONL = ROOT / "marimo" / "panel_example.jsonl"
     IMAGE_NONE = "なし（テキストのみ）"
     IMAGE_EXAMPLE = "例題画像: きのこ vs たけのこ実物写真（CC0）"
     IMAGE_UPLOAD = "アップロードした画像を使う"
@@ -99,6 +100,7 @@ def _():
         OUTPUT_DIR,
         PersonaApplication,
         QUESTION_EXAMPLES,
+        ROOT_EXAMPLE_JSONL,
         RequestDescriptor,
         SimpleHttpTransport,
         UTC,
@@ -325,8 +327,9 @@ def _(
         mo.status.progress_bar(_panelists, title="パネル回答を生成中", show_eta=True),
         start=1,
     ):
-        _fields = _persona.get("persona_fields") or {}
-        _profile = (_fields.get("persona") or _persona.get("text") or "").strip()
+        # Show the full aggregated description (all six persona facets,
+        # ~550 chars) — individual fields are only ~100 chars each.
+        _profile = (_persona.get("text") or "").strip()
         _system = (
             "あなたは以下のペルソナの人物です。この人物になりきって、一人称で、"
             "その人らしい視点・語彙で回答してください。回答(answer)は日本語で"
@@ -439,6 +442,119 @@ def _(
                 data=(_jsonl_text + "\n").encode("utf-8"),
                 filename=_jsonl_path.name,
                 label="JSONL をダウンロード",
+            ),
+        ]
+    )
+
+
+@app.cell
+def _(mo):
+    history_reload = mo.ui.run_button(label="🔄 一覧を更新")
+    mo.vstack(
+        [
+            mo.md(
+                """
+                ## 📚 過去の実行プレビュー
+
+                これまでの JSONL（`outputs/` の実行結果と、リポジトリ同梱の
+                サンプル）を選んで、同じテーブル形式で振り返れます。
+                実行直後に出てこないときは「一覧を更新」を押してください。
+                """
+            ),
+            history_reload,
+        ]
+    )
+    return (history_reload,)
+
+
+@app.cell
+def _(OUTPUT_DIR, ROOT_EXAMPLE_JSONL, history_reload, mo):
+    _ = history_reload.value  # re-scan when the reload button is pressed
+    _runs = (
+        sorted(OUTPUT_DIR.glob("persona_panel-*.jsonl"), reverse=True)
+        if OUTPUT_DIR.exists()
+        else []
+    )
+    _options = {}
+    if ROOT_EXAMPLE_JSONL.exists():
+        _options["同梱サンプル（M=30 テキスト+画像）"] = ROOT_EXAMPLE_JSONL
+    for _run in _runs:
+        _options[_run.name] = _run
+    if _options:
+        history_choice = mo.ui.dropdown(
+            options=list(_options.keys()),
+            value=next(iter(_options.keys())),
+            label="実行を選択",
+        )
+        history_paths = _options
+        _view = history_choice
+    else:
+        history_choice = None
+        history_paths = {}
+        _view = mo.md("_まだ実行結果がありません。_")
+    _view
+    return history_choice, history_paths
+
+
+@app.cell
+def _(history_choice, history_paths, json, mo):
+    import collections
+
+    mo.stop(history_choice is None, mo.md(""))
+    _path = history_paths[history_choice.value]
+    _records = [
+        json.loads(_line)
+        for _line in _path.read_text(encoding="utf-8").splitlines()
+        if _line.strip()
+    ]
+    mo.stop(not _records, mo.md("_このファイルは空です。_"))
+
+    _models = sorted({r.get("model", "?") for r in _records})
+    _queries = sorted({r.get("panel_query", "?") for r in _records})
+    _with_image = sum(1 for r in _records if r.get("image"))
+    _tally = collections.Counter(r.get("verdict", "") for r in _records)
+    _tally_md = " / ".join(
+        f"**{verdict or '(無回答)'}** × {count}"
+        for verdict, count in _tally.most_common(8)
+    )
+
+    mo.vstack(
+        [
+            mo.hstack(
+                [
+                    mo.stat(len(_records), label="回答数"),
+                    mo.stat(", ".join(_models), label="model"),
+                    mo.stat(f"{_with_image}/{len(_records)}", label="画像あり"),
+                ]
+            ),
+            mo.md(f"パネル選定: {', '.join(_queries)}\n\n集計: {_tally_md}"),
+            mo.ui.table(
+                [
+                    {
+                        "#": record.get("rank"),
+                        "地域": f"{record.get('prefecture')}（{record.get('region')}）",
+                        "ペルソナ": record.get("persona", ""),
+                        "結論": record.get("verdict", ""),
+                        "回答": record.get("answer", ""),
+                        "画像": record.get("image") or "―",
+                        "ms": record.get("latency_ms"),
+                    }
+                    for record in _records
+                ],
+                selection=None,
+                show_search=True,
+                wrapped_columns=["ペルソナ", "回答"],
+                column_widths={
+                    "#": 40,
+                    "地域": 120,
+                    "ペルソナ": 280,
+                    "結論": 100,
+                    "回答": 320,
+                    "画像": 110,
+                    "ms": 60,
+                },
+                page_size=10,
+                label=f"{_path.name}",
             ),
         ]
     )
