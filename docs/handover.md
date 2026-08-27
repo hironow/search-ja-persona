@@ -8,9 +8,10 @@ Windows (11 + Docker Desktop/WSL2) is now a verified dev environment: `uv sync
 --frozen`, the unit suite (31 passed / 1 skipped), `just integration` against
 live emulators, and the full `just qa` flow (1k personas indexed into
 Qdrant/Elasticsearch/Neo4j, fused Japanese search returning results) all pass
-locally. All work sits on branch `fix/windows-portability`; `main` is untouched
-at `6957205` and the branch is **not pushed** (push was explicitly forbidden
-this session).
+locally. The lock is multi-platform by declaration (`required-environments`)
+and Windows installs CUDA torch (2.13.0+cu130, verified on RTX 4090). All work
+sits on branch `fix/windows-portability`; `main` is untouched at `6957205` and
+the branch is **not pushed** (push was explicitly forbidden this session).
 
 ## In Progress
 Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
@@ -26,6 +27,13 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
 7. `fix(deps)` lock upgrade clearing all 5 open Dependabot alerts:
    transformers 4.56.2→5.16.1, protobuf 6.32.1→7.36.0, pygments
    2.19.2→2.21.0; sentence-transformers 5.7.0→6.0.0 rides along.
+8. `build(uv)` resolution policy in pyproject: `required-environments`
+   (Linux x86_64/aarch64, macOS arm64, Windows AMD64 wheel coverage
+   enforced at lock time) + `exclude-newer = "7 days"` cooldown
+   (mandated by the repo semgrep rule for any `[tool.uv]` block).
+9. `build(uv)` Windows pulls CUDA torch (2.13.0+cu130) from the explicit
+   pytorch.org index; Linux/macOS keep PyPI wheels. torch declared as a
+   direct dependency so `tool.uv.sources` applies.
 
 ## Next Actions
 1. Human: review and push `fix/windows-portability`, open a PR. The Dependabot
@@ -34,6 +42,12 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
    emulator non-goal vs. the vendored stack — is still unresolved.
 3. Consider a `windows-latest` leg in `ci.yaml` so Windows support cannot
    regress (not added here: unverifiable locally while push is forbidden).
+4. Batch embedding in `PersonaIndexer`/`Embedder`: the indexer encodes one
+   record at a time, so GPU gains almost nothing end to end (`just qa`
+   ~40s on GPU ≈ CPU). Measured on the RTX 4090: single-item 9.7ms/text
+   vs batched (64) 0.24ms/text — a batch API would cut full-corpus
+   embedding from hours to minutes. Drive it TDD (protocol extension with
+   fallback for hashed/fastembed backends).
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
