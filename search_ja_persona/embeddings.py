@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -12,6 +12,14 @@ class Embedder(Protocol):
     def dimension(self) -> int: ...
 
     def embed(self, text: str) -> list[float]: ...
+
+    def embed_many(self, texts: Sequence[str]) -> list[list[float]]: ...
+
+
+def _to_float_list(vector: Any) -> list[float]:
+    if hasattr(vector, "tolist"):
+        return list(map(float, vector.tolist()))
+    return [float(value) for value in vector]
 
 
 @dataclass(frozen=True)
@@ -36,6 +44,9 @@ class HashedNgramEmbedder:
         if norm == 0:
             return buckets
         return [value / norm for value in buckets]
+
+    def embed_many(self, texts: Sequence[str]) -> list[list[float]]:
+        return [self.embed(text) for text in texts]
 
     def _generate_ngrams(self, text: str, n: int) -> Iterable[str]:
         if len(text) < n:
@@ -100,17 +111,19 @@ class SentenceTransformerEmbedder:
         return self._dimension
 
     def embed(self, text: str) -> list[float]:
-        cleaned = (text or "").strip()
-        if not cleaned:
-            return [0.0] * self._dimension
+        return self.embed_many([text])[0]
 
-        vectors = self._model.encode(
-            [cleaned], normalize_embeddings=self.normalize_embeddings
-        )
-        vector = vectors[0]
-        if hasattr(vector, "tolist"):
-            return list(map(float, vector.tolist()))
-        return [float(value) for value in vector]
+    def embed_many(self, texts: Sequence[str]) -> list[list[float]]:
+        cleaned = [(text or "").strip() for text in texts]
+        non_empty = [text for text in cleaned if text]
+        if non_empty:
+            vectors = self._model.encode(
+                non_empty, normalize_embeddings=self.normalize_embeddings
+            )
+            encoded = iter([_to_float_list(vector) for vector in vectors])
+        else:
+            encoded = iter([])
+        return [next(encoded) if text else [0.0] * self._dimension for text in cleaned]
 
 
 @dataclass
@@ -135,19 +148,22 @@ class FastEmbedder:
         return self._dimension
 
     def embed(self, text: str) -> list[float]:
-        cleaned = (text or "").strip()
-        if not cleaned:
-            return [0.0] * self._dimension
+        return self.embed_many([text])[0]
 
-        try:
-            iterator = self._model.embed([cleaned], normalize=self.normalize_embeddings)
-        except TypeError:  # pragma: no cover - older fastembed without normalize kw
-            iterator = self._model.embed([cleaned])
-        vectors = list(iterator)
-        vector = vectors[0]
-        if hasattr(vector, "tolist"):
-            return list(map(float, vector.tolist()))
-        return [float(value) for value in vector]
+    def embed_many(self, texts: Sequence[str]) -> list[list[float]]:
+        cleaned = [(text or "").strip() for text in texts]
+        non_empty = [text for text in cleaned if text]
+        if non_empty:
+            try:
+                iterator = self._model.embed(
+                    non_empty, normalize=self.normalize_embeddings
+                )
+            except TypeError:  # pragma: no cover - older fastembed without kw
+                iterator = self._model.embed(non_empty)
+            encoded = iter([_to_float_list(vector) for vector in iterator])
+        else:
+            encoded = iter([])
+        return [next(encoded) if text else [0.0] * self._dimension for text in cleaned]
 
 
 # Backwards compatibility alias for existing imports

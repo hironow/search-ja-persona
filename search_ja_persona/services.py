@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -230,7 +230,27 @@ class ElasticsearchService:
             body=payload,
             headers={"Content-Type": "application/x-ndjson"},
         )
-        return self.transport.request(request)
+        response = self.transport.request(request)
+        # _bulk answers HTTP 200 even when individual documents fail; the
+        # per-item errors only appear in the response body.
+        if response.get("errors"):
+            failed = [
+                item
+                for action in response.get("items", [])
+                for item in action.values()
+                if item.get("error")
+            ]
+            details = "; ".join(
+                f"{item.get('_id', 'unknown')}: "
+                f"{item['error'].get('type', 'unknown')} - "
+                f"{item['error'].get('reason', '')}"
+                for item in failed[:5]
+            )
+            raise RuntimeError(
+                f"Elasticsearch bulk indexing failed for {len(failed)} "
+                f"document(s): {details}"
+            )
+        return response
 
     def search(self, query: str, *, limit: int = 5) -> dict[str, Any]:
         body = {
@@ -264,34 +284,60 @@ class Neo4jService:
         self.transport = transport or SimpleHttpTransport(host, port, auth=auth)
 
     def merge_persona(self, persona: dict[str, Any]) -> dict[str, Any]:
+        return self.merge_personas([persona])
+
+    def merge_personas(self, personas: Sequence[dict[str, Any]]) -> dict[str, Any]:
+        if not personas:
+            return {}
+        # One UNWIND statement per batch: a transaction per persona makes the
+        # HTTP round-trip the ingest bottleneck.
         statement = (
-            "MERGE (p:Persona {uuid: $uuid}) "
-            "SET p.text = $text "
-            "WITH p, $prefecture AS prefecture "
-            "FOREACH (_ IN CASE WHEN prefecture IS NOT NULL AND prefecture <> '' THEN [1] ELSE [] END | "
-            "  SET p.prefecture = prefecture "
-            "  MERGE (pref:Prefecture {name: prefecture}) "
+            "UNWIND $personas AS persona "
+            "MERGE (p:Persona {uuid: persona.uuid}) "
+            "SET p.text = persona.text "
+            "WITH p, persona "
+            "FOREACH (_ IN CASE WHEN persona.prefecture IS NOT NULL AND persona.prefecture <> '' THEN [1] ELSE [] END | "
+            "  SET p.prefecture = persona.prefecture "
+            "  MERGE (pref:Prefecture {name: persona.prefecture}) "
             "  MERGE (p)-[:LIVES_IN]->(pref) "
             ") "
-            "WITH p, $region AS region "
-            "FOREACH (_ IN CASE WHEN region IS NOT NULL AND region <> '' THEN [1] ELSE [] END | "
-            "  MERGE (r:Region {name: region}) "
+            "WITH p, persona "
+            "FOREACH (_ IN CASE WHEN persona.region IS NOT NULL AND persona.region <> '' THEN [1] ELSE [] END | "
+            "  MERGE (r:Region {name: persona.region}) "
             "  MERGE (p)-[:LOCATED_IN]->(r) "
             ") "
-            "RETURN p.uuid"
+            "RETURN count(p)"
         )
         parameters = {
-            "uuid": persona.get("uuid"),
-            "text": persona.get("persona"),
-            "prefecture": persona.get("prefecture"),
-            "region": persona.get("region"),
+            "personas": [
+                {
+                    "uuid": persona.get("uuid"),
+                    "text": persona.get("persona"),
+                    "prefecture": persona.get("prefecture"),
+                    "region": persona.get("region"),
+                }
+                for persona in personas
+            ]
         }
         request = RequestDescriptor(
             method="POST",
             path="/db/neo4j/tx/commit",
             body={"statements": [{"statement": statement, "parameters": parameters}]},
         )
-        return self.transport.request(request)
+        return self._raise_on_statement_errors(self.transport.request(request))
+
+    @staticmethod
+    def _raise_on_statement_errors(response: dict[str, Any]) -> dict[str, Any]:
+        # tx/commit answers HTTP 200 even when the statement fails; the
+        # failure only appears in the body's errors list.
+        errors = response.get("errors") or []
+        if errors:
+            details = "; ".join(
+                f"{error.get('code', 'unknown')}: {error.get('message', '')}"
+                for error in errors
+            )
+            raise RuntimeError(f"Neo4j statement failed: {details}")
+        return response
 
     def fetch_persona_context(self, uuid: str) -> dict[str, Any]:
         statement = (
@@ -307,7 +353,7 @@ class Neo4jService:
                 "statements": [{"statement": statement, "parameters": {"uuid": uuid}}]
             },
         )
-        response = self.transport.request(request)
+        response = self._raise_on_statement_errors(self.transport.request(request))
         results = response.get("results", [])
         if not results:
             return {"uuid": uuid, "relationships": []}

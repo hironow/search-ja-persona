@@ -38,19 +38,32 @@ class PersonaIndexer:
             return
 
     def _process_batch(self, batch: list[dict]) -> None:
-        qdrant_points = [self._build_qdrant_point(persona) for persona in batch]
+        composed = [self._compose_text(persona) for persona in batch]
+        # One model call per batch: single-item embed() calls would leave
+        # GPU/ONNX backends dominated by per-call overhead.
+        vectors = self.embedder.embed_many([aggregated for aggregated, _ in composed])
+        qdrant_points = [
+            self._build_qdrant_point(persona, aggregated, per_field, vector)
+            for persona, (aggregated, per_field), vector in zip(
+                batch, composed, vectors, strict=True
+            )
+        ]
         es_documents = [
-            self._build_elasticsearch_document(persona) for persona in batch
+            self._build_elasticsearch_document(persona, aggregated, per_field)
+            for persona, (aggregated, per_field) in zip(batch, composed, strict=True)
         ]
 
         self.qdrant.upsert_points(qdrant_points)
         self.elasticsearch.bulk_index(es_documents)
-        for persona in batch:
-            self.neo4j.merge_persona(persona)
+        self.neo4j.merge_personas(batch)
 
-    def _build_qdrant_point(self, persona: dict) -> dict:
-        aggregated_text, per_field = self._compose_text(persona)
-        vector = self.embedder.embed(aggregated_text)
+    def _build_qdrant_point(
+        self,
+        persona: dict,
+        aggregated_text: str,
+        per_field: dict[str, str],
+        vector: list[float],
+    ) -> dict:
         return {
             "id": persona["uuid"],
             "vector": vector,
@@ -63,8 +76,9 @@ class PersonaIndexer:
             },
         }
 
-    def _build_elasticsearch_document(self, persona: dict) -> dict:
-        aggregated_text, per_field = self._compose_text(persona)
+    def _build_elasticsearch_document(
+        self, persona: dict, aggregated_text: str, per_field: dict[str, str]
+    ) -> dict:
         document: dict[str, Any] = {
             "uuid": persona.get("uuid"),
             "text": aggregated_text,

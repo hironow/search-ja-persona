@@ -11,13 +11,16 @@ requires-python = ">=3.12"
 dependencies = [
     "datasets>=5.0.1",
     "fastembed>=0.7.3",
-    "onnxruntime>=1.28.0",
+    "onnxruntime>=1.29.0",
     "pandas>=3.0.5",
     "pyarrow>=25.0.1",
     "python-dotenv>=1.2.2",
     "aiohttp>=3.14.3",
     "rich>=15.0.0",
-    "sentence-transformers>=5.7.0",
+    "sentence-transformers>=6.0.0",
+    # Direct declaration so [tool.uv.sources] can steer the wheel variant
+    # per platform (CUDA on Windows); sentence-transformers needs it anyway.
+    "torch>=2.13.0",
 ]
 
 [dependency-groups]
@@ -28,6 +31,32 @@ dev = [
     "pytest-mock>=3.15.1",
     "ruff>=0.16.2",
 ]
+
+[tool.uv]
+# Wait out newly published releases before resolving them (supply-chain
+# cooldown; matches the machine-level hardening policy).
+exclude-newer = "7 days"
+# Fail at lock time (not at a teammate's install time) if an upgrade picks a
+# version without wheels for any platform we support.
+required-environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+# Windows PyPI torch wheels are CPU-only; pull the CUDA build from the
+# PyTorch index there. Linux keeps the PyPI wheel (already CUDA via the
+# nvidia-* dependencies) and macOS keeps the default (MPS) wheel.
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu130", marker = "sys_platform == 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.pytest.ini_options]
 norecursedirs = ["emulator"]

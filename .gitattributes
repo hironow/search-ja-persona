@@ -1,0 +1,3 @@
+# Normalize line endings to LF regardless of per-machine core.autocrlf, so
+# Windows clones stay byte-identical to CI and the prek whitespace hooks.
+* text=auto eol=lf

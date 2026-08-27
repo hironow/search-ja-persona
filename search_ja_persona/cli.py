@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,7 +35,21 @@ PERSONA_FIELD_SET = set(PERSONA_TEXT_FIELDS)
 INDEX_METADATA_SCHEMA_VERSION = "2025-03-05"
 
 
+def _force_utf8_stdio() -> None:
+    # Windows defaults stdout/stderr to the ANSI code page (cp932 on Japanese
+    # systems): redirected JSON output becomes mojibake and personas containing
+    # characters outside that code page raise UnicodeEncodeError on render.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8")
+            except (OSError, ValueError):  # pragma: no cover - defensive
+                pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
+    _force_utf8_stdio()
     parser = _build_parser()
     args = parser.parse_args(argv)
 
@@ -95,14 +110,14 @@ def _build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument(
         "--fastembed-cache-dir", type=Path, default=Path(".cache")
     )
-    index_parser.add_argument("--qdrant-host", default="localhost")
+    index_parser.add_argument("--qdrant-host", default="127.0.0.1")
     index_parser.add_argument("--qdrant-port", type=int, default=6333)
     index_parser.add_argument("--qdrant-collection", default="personas")
     index_parser.add_argument("--qdrant-distance", default="Cosine")
-    index_parser.add_argument("--es-host", default="localhost")
+    index_parser.add_argument("--es-host", default="127.0.0.1")
     index_parser.add_argument("--es-port", type=int, default=9200)
     index_parser.add_argument("--es-index", default="personas")
-    index_parser.add_argument("--neo4j-host", default="localhost")
+    index_parser.add_argument("--neo4j-host", default="127.0.0.1")
     index_parser.add_argument("--neo4j-port", type=int, default=7474)
     index_parser.add_argument("--neo4j-user", default="neo4j")
     index_parser.add_argument("--neo4j-password", default="password")
@@ -138,14 +153,14 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument(
         "--fastembed-cache-dir", type=Path, default=Path(".cache")
     )
-    search_parser.add_argument("--qdrant-host", default="localhost")
+    search_parser.add_argument("--qdrant-host", default="127.0.0.1")
     search_parser.add_argument("--qdrant-port", type=int, default=6333)
     search_parser.add_argument("--qdrant-collection", default="personas")
     search_parser.add_argument("--qdrant-distance", default="Cosine")
-    search_parser.add_argument("--es-host", default="localhost")
+    search_parser.add_argument("--es-host", default="127.0.0.1")
     search_parser.add_argument("--es-port", type=int, default=9200)
     search_parser.add_argument("--es-index", default="personas")
-    search_parser.add_argument("--neo4j-host", default="localhost")
+    search_parser.add_argument("--neo4j-host", default="127.0.0.1")
     search_parser.add_argument("--neo4j-port", type=int, default=7474)
     search_parser.add_argument("--neo4j-user", default="neo4j")
     search_parser.add_argument("--neo4j-password", default="password")
@@ -168,13 +183,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "clear-emulators",
         help="Dangerous: drop persona data from local emulator stores",
     )
-    reset_parser.add_argument("--qdrant-host", default="localhost")
+    reset_parser.add_argument("--qdrant-host", default="127.0.0.1")
     reset_parser.add_argument("--qdrant-port", type=int, default=6333)
     reset_parser.add_argument("--qdrant-collection", default="personas")
-    reset_parser.add_argument("--es-host", default="localhost")
+    reset_parser.add_argument("--es-host", default="127.0.0.1")
     reset_parser.add_argument("--es-port", type=int, default=9200)
     reset_parser.add_argument("--es-index", default="personas")
-    reset_parser.add_argument("--neo4j-host", default="localhost")
+    reset_parser.add_argument("--neo4j-host", default="127.0.0.1")
     reset_parser.add_argument("--neo4j-port", type=int, default=7474)
     reset_parser.add_argument("--neo4j-user", default="neo4j")
     reset_parser.add_argument("--neo4j-password", default="password")
@@ -203,8 +218,10 @@ def _load_index_metadata() -> dict | None:
     if not METADATA_PATH.exists():
         return None
     try:
-        return json.loads(METADATA_PATH.read_text())
-    except json.JSONDecodeError:
+        return json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # UnicodeDecodeError covers metadata written by older CLI versions
+        # under a non-UTF-8 locale (e.g. cp932 on Japanese Windows).
         return None
 
 
@@ -275,7 +292,9 @@ def _write_index_metadata(
         "schema_version": INDEX_METADATA_SCHEMA_VERSION,
     }
     METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    METADATA_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    METADATA_PATH.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def _collect_index_stats(

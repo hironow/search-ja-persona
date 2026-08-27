@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 from search_ja_persona.embeddings import HashedNgramEmbedder
 from search_ja_persona.indexer import PersonaIndexer
 from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
@@ -232,3 +234,127 @@ def test_elasticsearch_ensure_index_handles_exists() -> None:
 
     assert response["status"] == "exists"
     assert transport.requests
+
+
+def test_neo4j_merge_personas_sends_one_batched_statement() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"results": []})
+
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+    result = service.merge_personas(
+        [
+            {
+                "uuid": "1",
+                "persona": "東京の介護リーダー",
+                "prefecture": "東京都",
+                "region": "関東地方",
+            },
+            {
+                "uuid": "2",
+                "persona": "大阪の菓子職人",
+                "prefecture": None,
+                "region": "",
+            },
+        ]
+    )
+
+    assert len(transport.requests) == 1
+    descriptor = transport.requests[0]
+    assert descriptor.path == "/db/neo4j/tx/commit"
+    statements = descriptor.body["statements"]
+    assert len(statements) == 1
+    assert "UNWIND $personas" in statements[0]["statement"]
+    assert statements[0]["parameters"]["personas"] == [
+        {
+            "uuid": "1",
+            "text": "東京の介護リーダー",
+            "prefecture": "東京都",
+            "region": "関東地方",
+        },
+        {
+            "uuid": "2",
+            "text": "大阪の菓子職人",
+            "prefecture": None,
+            "region": "",
+        },
+    ]
+    assert result == {"results": []}
+
+
+def test_neo4j_merge_personas_skips_empty_batch() -> None:
+    transport = FakeTransport()
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    assert service.merge_personas([]) == {}
+    assert transport.requests == []
+
+
+def test_neo4j_merge_personas_raises_on_statement_errors() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response(
+        {
+            "results": [],
+            "errors": [
+                {
+                    "code": "Neo.ClientError.Statement.SemanticError",
+                    "message": "Cannot merge node using null property value",
+                }
+            ],
+        }
+    )
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    with pytest.raises(RuntimeError, match="Neo.ClientError.Statement.SemanticError"):
+        service.merge_personas([{"uuid": None, "persona": "テスト"}])
+
+
+def test_neo4j_fetch_persona_context_raises_on_statement_errors() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response(
+        {
+            "results": [],
+            "errors": [
+                {
+                    "code": "Neo.ClientError.Security.Unauthorized",
+                    "message": "Invalid credentials",
+                }
+            ],
+        }
+    )
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    with pytest.raises(RuntimeError, match="Neo.ClientError.Security.Unauthorized"):
+        service.fetch_persona_context("1")
+
+
+def test_elasticsearch_bulk_index_raises_on_item_errors() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response(
+        {
+            "errors": True,
+            "items": [
+                {"index": {"_id": "1", "status": 201}},
+                {
+                    "index": {
+                        "_id": "2",
+                        "status": 400,
+                        "error": {
+                            "type": "mapper_parsing_exception",
+                            "reason": "failed to parse field [text]",
+                        },
+                    }
+                },
+            ],
+        }
+    )
+    service = ElasticsearchService(
+        transport=transport, host="localhost", port=9200, index="personas"
+    )
+
+    with pytest.raises(RuntimeError, match="mapper_parsing_exception"):
+        service.bulk_index(
+            [
+                {"uuid": "1", "text": "東京の介護リーダー"},
+                {"uuid": "2", "text": "大阪の菓子職人"},
+            ]
+        )

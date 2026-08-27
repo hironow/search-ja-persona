@@ -45,3 +45,23 @@ jobs:
       # exact pinned versions and never rewrites uv.lock.
       - name: Unit tests
         run: uv run --frozen pytest -q
+
+  windows:
+    name: unit tests (windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The uv cache matters even more here: win32 resolves torch from the
+      # CUDA index (multi-GB wheel), which this cache amortizes across runs.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      # Lint/format already gate on the ubuntu job; this leg guards the
+      # Windows-specific behavior (paths, encodings, wheel sources).
+      - name: Unit tests
+        run: uv run --frozen pytest -q

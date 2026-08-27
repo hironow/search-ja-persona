@@ -341,7 +341,9 @@ def test_cli_index_fast_embedder(
 
     assert recorded["fast_config"] == {
         "model_name": "intfloat/multilingual-e5-small",
-        "cache_dir": "/tmp/cache",
+        # The CLI round-trips the argument through pathlib, so the separator
+        # is platform-native (e.g. "\\tmp\\cache" on Windows).
+        "cache_dir": str(Path("/tmp/cache")),
         "normalize": False,
     }
     assert recorded["indexer_init"]["embedder"].dimension == 512
@@ -368,7 +370,8 @@ def test_cli_index_prompt_reset_decline(
                 },
                 "schema_version": INDEX_METADATA_SCHEMA_VERSION,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
     recorded: dict[str, Any] = {}
@@ -439,7 +442,8 @@ def test_cli_index_prompt_reset_accept(
                 },
                 "schema_version": INDEX_METADATA_SCHEMA_VERSION,
             }
-        )
+        ),
+        encoding="utf-8",
     )
 
     recorded: dict[str, Any] = {}
@@ -521,3 +525,25 @@ def test_cli_clear_emulators(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(recorded.get("services", [])) == 3
     output = test_console.export_text()
     assert "Local emulator stores cleared." in output
+
+
+def test_load_index_metadata_tolerates_undecodable_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    metadata_path = tmp_path / "metadata.json"
+    # Simulate a metadata file written by an older CLI under a non-UTF-8
+    # locale (e.g. cp932): the bytes are not valid UTF-8.
+    metadata_path.write_bytes('{"embedder": {"preset": "東京"}}'.encode("cp932"))
+    monkeypatch.setattr(cli, "METADATA_PATH", metadata_path)
+
+    assert cli._load_index_metadata() is None
+
+
+def test_cli_parser_defaults_to_ipv4_loopback() -> None:
+    parser = cli._build_parser()
+
+    for argv in (["index", "--dataset", "x.parquet"], ["search", "--query", "q"]):
+        args = parser.parse_args(argv)
+        assert args.qdrant_host == "127.0.0.1"
+        assert args.es_host == "127.0.0.1"
+        assert args.neo4j_host == "127.0.0.1"

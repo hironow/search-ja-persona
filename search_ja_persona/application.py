@@ -22,14 +22,17 @@ from .services import ElasticsearchService, Neo4jService, QdrantService
 class ApplicationConfig:
     """Configuration covering vectorizer and emulator endpoints."""
 
-    qdrant_host: str = "localhost"
+    # 127.0.0.1 instead of "localhost": Windows resolves localhost to ::1
+    # first, and the emulators bind IPv4 loopback only, so every request
+    # would stall in the IPv6 connect attempt before falling back.
+    qdrant_host: str = "127.0.0.1"
     qdrant_port: int = 6333
     qdrant_collection: str = "personas"
     qdrant_distance: str = "Cosine"
-    es_host: str = "localhost"
+    es_host: str = "127.0.0.1"
     es_port: int = 9200
     es_index: str = "personas"
-    neo4j_host: str = "localhost"
+    neo4j_host: str = "127.0.0.1"
     neo4j_port: int = 7474
     neo4j_user: str = "neo4j"
     neo4j_password: str = "password"

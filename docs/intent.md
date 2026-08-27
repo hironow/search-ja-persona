@@ -1,8 +1,8 @@
 # Intent
 
-**Last updated:** 2026-06-10
+**Last updated:** 2026-08-27
 **Requester:** hironow
-**Status:** DRAFT — AI が README / git 履歴から起草。requester 未確認
+**Status:** DRAFT — AI が README / git 履歴から起草。2026-08-27 に decision-queue の2件（emulator 非目標・sample 表現）を requester 指示で改訂
 **Work unit:** search-ja-persona — CLI tooling for indexing and searching the Nemotron Personas Japan dataset with local emulators
 
 ## Goal
@@ -11,7 +11,7 @@ Provide self-contained tooling for indexing and searching the [Nemotron Personas
 ## Success Criteria
 - Unit test suite under `tests/` passes (`just test`).
 - Integration tests against running emulators pass (`just integration`, `tests/test_integration_emulators.py`).
-- The QA flow works end-to-end on the bundled 1k sample: `just qa` (= `qa-index` + `qa-search`) returns results for the default Japanese query.
+- The QA flow works end-to-end on the locally generated 1k sample (`just qa-sample`; git-ignored, not checked in): `just qa` (= `qa-index` + `qa-search`) returns results for the default Japanese query.
 
 ## Scope
 ### In scope
@@ -21,7 +21,7 @@ Provide self-contained tooling for indexing and searching the [Nemotron Personas
 - Architecture documentation in `docs/architecture.md` and ADRs in `docs/adr/`.
 
 ### Out of scope (Non-goals)
-- The emulator stack itself: the emulator submodule was removed and moved to `sets/emulator-set` (commit dc48659); this repo only consumes running emulators.
+- The full emulator-set kit: this repo vendors only a minimal three-service subset (`emulator/compose.yaml`, ADR 0001 — Qdrant/Elasticsearch/Neo4j); the canonical multi-emulator kit lives upstream at `github.com/hironow/emulator-set`.
 
 ## Constraints
 - Python 3.12+; dependency management via `uv`; tool versions via `mise.toml` (README / repo files).
@@ -30,5 +30,5 @@ Provide self-contained tooling for indexing and searching the [Nemotron Personas
 ## Open Questions
 - [ ] requester による本ドラフトのレビュー
 - [ ] Search relevance targets: no quality benchmarks or relevance criteria are defined in the repo — is "returns merged results" sufficient, or is there a quality bar?
-- [ ] CI: there is no `.github/workflows/` in this repo — should tests run in CI?
+- [x] CI: resolved — `.github/workflows/ci.yaml` runs prek hooks + unit tests on ubuntu, plus a windows-latest unit-test leg.
 - [ ] Intended audience / downstream use of the indexed persona data (exploration only, or feeding another system?).
