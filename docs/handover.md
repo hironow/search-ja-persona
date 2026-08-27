@@ -97,10 +97,25 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   graph on every run (found at 999,995; restored to 1,000,000 via
   idempotent reindex). Rows are now re-keyed with synthetic uuids.
 
+- **#48 RRF fusion**: weighted Reciprocal Rank Fusion (K=60, 1:1)
+  replaced vector-fills-then-truncate; `--check-thresholds` and
+  `just check` landed alongside.
+- **name exclusion (branch `feat/name-exclusion`)**: embedding inputs
+  now strip person names (strip-person-names-v1; stored text unchanged);
+  full 1M reindexed in place and proven migrated content-wise (40/40
+  stratified cosine checks). basic 0.950→0.983, hard 0.450→**0.633**,
+  vector-only leg 1.000/0.650 (first time above BM25), 6-query
+  name-pollution class +0.30 mean. Self-retrieval recall@1 landed at
+  0.92 (recall@10 1.00) — the requester ratified an amended bar
+  (recall@1 ≥ 0.90 ∧ recall@10 ≥ 0.99, intent.md updated). Includes the
+  keyword-leg tie-break, the metadata-vanishing culprit fix (the reset
+  test deleted the real metadata file on every pytest run), and a
+  regenerated catalog snapshot. See
+  `docs/research/2026-08-27-name-exclusion-results.md`.
+
 ## In Progress
-- PR for `feat/rrf-fusion` — merge on green per the session's per-PR
-  agreement (the merge also ratifies the disclosed filtered-geo
-  deviation).
+- PR for `feat/name-exclusion` — merge on green per the session's
+  per-PR agreement.
 
 ## Next Actions
 1. Human decisions queued by the hardening research note: (a) new hard-tier
@@ -111,10 +126,13 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
 2. Improvement candidates (each its own work unit, evidence in
    `docs/research/2026-08-27-golden-set-hardening.md`): ~~prefecture
    payload filter~~ (done) → ~~fusion redesign~~ (done — RRF adopted) →
-   name-token exclusion at embed time (needs ~50min reindex) → pooled
-   human qrels. Also queued: golden-set maintenance (add 泳ぎ/潮風-class
-   vocabulary to the Okinawa predicate and re-baseline; fix the 3
-   degenerate basic predicates) as one re-baselining PR.
+   ~~name-token exclusion~~ (done — adopted with the amended bar) →
+   pooled human qrels. Also queued: golden-set maintenance (add
+   泳ぎ/潮風-class vocabulary to the Okinawa predicate, autopsy the two
+   filtered-geo 0.80 rows, fix the 3 degenerate basic predicates,
+   re-baseline) as one PR; name-lookup strengthening (name-only rank-1
+   is 19/24 under CJK unigram BM25 — e.g. an extracted-name keyword
+   field).
 4. Metadata robustness candidates (structural, separate work unit, from
    the plan review): identity-keyed metadata (record/verify Qdrant
    endpoint+collection, per-identity files instead of one global
