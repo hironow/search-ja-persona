@@ -16,30 +16,39 @@ search-ja-persona is a CLI tool for indexing and searching the Nemotron Personas
 Parquet Shards
       |
       v
-PersonaRepository (streams records with batch/limit)
+PersonaRepository (stream with batch/limit)
       |
       v
-PersonaIndexer (normalizes text, builds embeddings)
+PersonaIndexer
+      |  compose text --> strip person names --> embed (batched)
       |
-      +---> QdrantService (vector points)
-      +---> ElasticsearchService (keyword documents)
+      +---> QdrantService (vector points; original text in payload)
+      +---> ElasticsearchService (keyword documents, names included)
       +---> Neo4jService (graph nodes)
+
+Query text
       |
       v
-PersonaSearchService (query execution)
+PersonaSearchService
       |
-      +---> Qdrant (vector search)
-      +---> Elasticsearch (keyword fallback)
-      +---> Neo4j (context enrichment)
+      +---> Qdrant vector leg  ---+   both legs fetch
+      +---> ES keyword leg     ---+   max(limit, min(3*limit, 30))
+      |                           |
+      |                     RRF fusion (K=60, weights 1:1)
+      |                           |
+      +---> Neo4j context for the fused top-limit only
       |
       v
-Merged Results (score + text + context)
+Fused Results (rrf_score + score + sources + text + context)
 ```
 
 Legend:
-- PersonaRepository: Repository for streaming Parquet data
-- PersonaIndexer: Indexer for batch ingestion
-- PersonaSearchService: Service for query orchestration
+- Parquet Shards: データセットの分割ファイル
+- PersonaRepository: Parquet ストリーミング読み出し
+- PersonaIndexer: 一括インデクサ（埋め込み入力からは人名を除去）
+- vector leg / keyword leg: ベクトル検索側 / キーワード検索側
+- RRF fusion: 順位ベースの融合（Reciprocal Rank Fusion）
+- Fused Results: 融合済み検索結果
 
 ## Module Structure
 
@@ -52,6 +61,9 @@ Legend:
 | `search.py` | Query execution and result fusion |
 | `embeddings.py` | Text vectorization (hashed, SentenceTransformers, FastEmbed) |
 | `services.py` | HTTP transports for emulator APIs |
+| `evaluation.py` | Golden-query loading/validation, precision/recall metrics, report assembly, threshold gate |
+| `name_stripping.py` | Person-name detection and removal for embedding inputs |
+| `prefectures.py` | Official 47-prefecture names and input validation |
 | `datasets.py` | HuggingFace dataset download helpers |
 | `manifest.py` | Parquet file manifest utilities |
 | `persona_fields.py` | Persona text field definitions |
@@ -144,19 +156,53 @@ only for the returned top-`limit`.
 Embedding inputs exclude person names (`strip-person-names-v1`,
 `search_ja_persona/name_stripping.py`): vectors stop chasing surnames and
 given names, while stored text keeps them so BM25 name lookup and display
-are unchanged.
+are unchanged (ADR 0003).
+
+## Prefecture Filter
+
+`search --prefecture <official name>` restricts both legs to residents of
+one prefecture: a Qdrant payload filter (backed by a keyword payload index,
+created at index time; `just ensure-payload-index` backfills older
+collections) plus an Elasticsearch `term` filter. Inputs are validated
+against the official 47 names at the entry points (CLI, golden set), so a
+colloquial form like 沖縄 fails fast instead of silently matching nothing.
+
+## Search-Quality Gate
+
+`just eval --check-thresholds` runs the golden benchmark against the live
+index and exits non-zero when a ratified bar or a required metric is
+missing or unmet (`search_ja_persona/evaluation.py:check_thresholds`):
+
+- golden mean precision@5, basic tier >= 0.85 / hard tier >= 0.55
+- filtered geo mean >= 0.90
+- self-retrieval recall@1 >= 0.90 and recall@10 >= 0.99
+- silent-death canaries: 3-store count agreement, graph-context
+  coverage >= 0.99, keyword-leg contribution > 0
+
+Companion harnesses: `just diagnose` scores every golden predicate against
+fused / vector-only / keyword-only / random rankings (discriminative-power
+check), and `just eval-names` tracks exact full-name lookup on a fixed
+40-name fixture. Golden data lives in `scripts/golden_queries.json`
+(runtime-validated); measurement history lives in `docs/research/`.
 
 ## Metadata Persistence
 
-Index metadata is cached in `.cache/index_metadata.json`:
+Index metadata is cached in `.cache/index_metadata.json` (CWD-relative):
 
 - Embedder preset and configuration
 - Vector dimensions
 - Persona fields used
+- Embedding text policy (`strip-person-names-v1`)
 - Collection/index names
 - Schema version
 
-This enables automatic reuse of settings across `index` and `search` commands.
+This enables automatic reuse of settings across `index` and `search`
+commands. When the file is missing or unusable, `search` without
+`--embedder` and `index` against a populated collection both fail closed
+(guessing the embedder risks wrong-dimension queries or destructive
+resets); the read-only `repair-metadata` subcommand re-records the file
+after verifying the declared preset against the live collection's vector
+dimension and a stored point's persona fields.
 
 ## Emulator Infrastructure
 

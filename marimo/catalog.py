@@ -541,19 +541,23 @@ def _(mo):
         {
             "📐 Score semantics": mo.md(
                 """
-                - **Vector hits** (Qdrant): `score` = cosine similarity (0–1).
-                - **Keyword fallback** (Elasticsearch): `score` = mapped
-                  `_score` for personas not in the vector shortlist.
+                - Ranking uses `rrf_score` — weighted Reciprocal Rank Fusion
+                  over the vector and keyword legs (K=60, production 1:1);
+                  `sources` lists the legs that returned each hit.
+                - `score` keeps the per-leg meaning: Qdrant cosine similarity
+                  when the vector leg saw the hit, otherwise the Elasticsearch
+                  `_score`.
                 - `return_stats=True` exposes `vector_hits`, `keyword_hits`,
                   `context_calls`, and `results`.
                 """
             ),
             "🧩 Pipeline": mo.md(
                 """
-                `PersonaRepository` → `PersonaIndexer` (compose text →
-                `embed_documents` in one batched call → Qdrant / Elasticsearch
-                / Neo4j) → `PersonaSearchService` (`embed_query` → vector
-                search → keyword fusion → graph context).
+                `PersonaRepository` → `PersonaIndexer` (compose text → strip
+                person names for the embedding input → `embed_documents` in
+                one batched call → Qdrant / Elasticsearch / Neo4j) →
+                `PersonaSearchService` (`embed_query` → both legs at fetch
+                depth → RRF fusion → graph context for the top hits).
                 See `docs/architecture.md`.
                 """
             ),
