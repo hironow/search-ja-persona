@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from search_ja_persona.indexer import PersonaIndexer
+from search_ja_persona.repository import PersonaRepository
 
 
 class RecordingEmbedder:
@@ -115,3 +117,67 @@ def test_indexer_encodes_each_batch_in_one_call() -> None:
     assert [persona["uuid"] for persona in neo4j.batches[0]] == ["id-0", "id-1"]
     assert neo4j.constraints_ensured == 1
     assert qdrant.payload_index_ensured == 1
+
+
+class StrippingProbeEmbedder:
+    dimension = 8
+
+    def __init__(self) -> None:
+        self.documents: list[str] = []
+
+    def embed_documents(self, texts) -> list[list[float]]:
+        self.documents.extend(texts)
+        return [[0.0] * self.dimension for _ in texts]
+
+
+def _named_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "uuid": "1",
+            "persona": "田中 太郎は、登山が好き。",
+            "professional_persona": "田中 太郎は、営業を担う。",
+            "prefecture": "東京都",
+            "region": "関東地方",
+        },
+        {
+            "uuid": "2",
+            "persona": "温泉 正次は、登山が好き。",
+            "professional_persona": "温泉 正次は、営業を担う。",
+            "prefecture": "東京都",
+            "region": "関東地方",
+        },
+    ]
+
+
+def _run_indexer(tmp_path: Path, rows: list[dict[str, Any]]):
+    parquet_path = tmp_path / "named.parquet"
+    PersonaRepository.write_sample(parquet_path, rows)
+    embedder = StrippingProbeEmbedder()
+    qdrant = FakeQdrant()
+    elasticsearch = FakeElasticsearch()
+    indexer = PersonaIndexer(
+        repository=PersonaRepository([parquet_path]),
+        embedder=embedder,
+        persona_fields=("professional_persona", "persona"),
+        qdrant=qdrant,
+        elasticsearch=elasticsearch,
+        neo4j=FakeNeo4j(),
+    )
+    indexer.index(batch_size=len(rows))
+    return embedder, qdrant, elasticsearch
+
+
+def test_indexer_embeds_stripped_text_but_stores_original(tmp_path: Path) -> None:
+    embedder, qdrant, elasticsearch = _run_indexer(tmp_path, _named_rows())
+
+    assert "田中 太郎" not in embedder.documents[0]
+    assert "登山が好き" in embedder.documents[0]
+    assert "田中 太郎" in qdrant.points[0]["payload"]["text"]
+    assert "田中 太郎" in elasticsearch.documents[0]["text"]
+
+
+def test_indexer_embedding_input_is_name_invariant(tmp_path: Path) -> None:
+    embedder, _, _ = _run_indexer(tmp_path, _named_rows())
+
+    # Two personas whose texts differ only by name embed the same input.
+    assert embedder.documents[0] == embedder.documents[1]
