@@ -171,6 +171,11 @@ def _cleanup_resources(app: PersonaApplication, uuids: list[str]) -> None:
 
 def test_index_and_search_with_emulators(tmp_path: Path) -> None:
     sample_rows = _load_sample_rows(limit=5)
+    # Neo4j has no per-test database: with the dataset's real uuids the
+    # teardown's DETACH DELETE would remove live personas from the shared
+    # graph. Re-key the rows so cleanup only ever touches test data.
+    for row in sample_rows:
+        row["uuid"] = uuid4().hex
     parquet_path = tmp_path / "sample.parquet"
     PersonaRepository.write_sample(parquet_path, sample_rows)
 
