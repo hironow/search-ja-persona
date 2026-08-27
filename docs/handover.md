@@ -64,8 +64,33 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
 77 passed / 1 skipped; CI (ubuntu + windows) green; open Dependabot alerts: 0.
 
 ## In Progress
-- PR for `feat/harden-golden-eval` (tiered golden eval + diagnostics) —
-  merge on green per the session's per-PR agreement.
+- PR #45 (`feat/prefecture-filter`) — CI green, awaiting the requester's
+  merge word. Residency as an explicit filter (Qdrant payload + ES term,
+  47-official-name validation, `just ensure-payload-index` migration
+  applied to the live 1M); benchmark schema v3 with a paired filtered
+  section: **filtered geo mean 1.000 (n=4)** vs 0.65 unfiltered, tier
+  means untouched. See
+  `docs/research/2026-08-27-prefecture-filter-results.md` (in that PR).
+- PR for `fix/missing-index-metadata` (this branch) — merge on green per
+  the session's per-PR agreement. `.cache/index_metadata.json` had gone
+  missing (cause untraceable; the file is CWD-relative and unlinked by
+  reset/clear paths). Search without `--embedder` used to fall back to
+  hashed-256 and die with an opaque Qdrant dimension error; worse, an
+  index rerun reconstructed partial metadata that always failed
+  `_should_reset`'s schema check, putting a destructive reset prompt in
+  front of the healthy 1M collection. Both paths now fail closed, and a
+  read-only `repair-metadata` subcommand re-records metadata after
+  verifying collection dimension + stored persona fields. Live metadata
+  restored via the new command (1,000,000 points, dim 768); bare CLI
+  search works again.
+- **Neo4j collateral found and healed**: the pre-existing integration
+  test `test_index_and_search_with_emulators` indexes the first 5 REAL
+  dataset rows into isolated Qdrant/ES resources but the SHARED Neo4j
+  database, and its cleanup DETACH-DELETEs those uuids — every
+  `just integration` run silently removed 5 real personas from the live
+  graph (found at 999,995). Restored to exactly 1,000,000 via idempotent
+  reindex of shard-0 rows 0-4. The test still needs fixing (synthetic
+  uuids, or skip the Neo4j cleanup for real-uuid rows).
 
 ## Next Actions
 1. Human decisions queued by the hardening research note: (a) new hard-tier
@@ -79,11 +104,18 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
    (keyword leg is effectively unused; BM25 alone beats fused on the
    predicate metrics) → name-token exclusion at embed time (needs ~50min
    reindex) → pooled human qrels.
-3. Tooling candidate (from the plan review): this repo has no `just check`
+3. Fix the integration test's Neo4j collateral (see In Progress) — one
+   small `fix` PR.
+4. Metadata robustness candidates (structural, separate work unit, from
+   the plan review): identity-keyed metadata (record/verify Qdrant
+   endpoint+collection, per-identity files instead of one global
+   CWD-relative file), atomic writes, and clear-emulators unlinking the
+   global metadata even when pointed at a non-default collection.
+5. Tooling candidate (from the plan review): this repo has no `just check`
    aggregate gate and no mypy/semgrep; the enforced gate today is
    `just pre-commit` + `just test` (mirrors CI). Adding the full AGENTS.md
    gate is a separate structural PR.
-4. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
+6. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
    any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
    data and does not shrink automatically.
 
