@@ -10,8 +10,10 @@ live emulators, and the full `just qa` flow (1k personas indexed into
 Qdrant/Elasticsearch/Neo4j, fused Japanese search returning results) all pass
 locally. The lock is multi-platform by declaration (`required-environments`)
 and Windows installs CUDA torch (2.13.0+cu130, verified on RTX 4090). All work
-sits on branch `fix/windows-portability`; `main` is untouched at `6957205` and
-the branch is **not pushed** (push was explicitly forbidden this session).
+sits on branch `fix/windows-portability`, pushed as PR #35 at hironow's
+direction; both queued decision-queue items were resolved in-session per the
+requester's instruction, and `ci.yaml` gained a `windows-latest` unit-test
+leg.
 
 ## In Progress
 Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
@@ -48,15 +50,13 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
     live-verified with a null-uuid merge.
 
 ## Next Actions
-1. Human: review and push `fix/windows-portability`, open a PR. The Dependabot
-   alerts close automatically once the upgraded lock reaches `main`.
-2. Human: the `docs/decision-queue.md` item (2026-07-27) — intent.md's
-   emulator non-goal vs. the vendored stack — is still unresolved.
-3. Consider a `windows-latest` leg in `ci.yaml` so Windows support cannot
-   regress (not added here: unverifiable locally while push is forbidden).
-4. (resolved this session) Neo4j tx/commit and Elasticsearch `_bulk`
-   body-level errors are now raised as RuntimeError instead of being
-   silently ignored — see commit list item 12.
+1. After PR #35 merges: confirm the 5 Dependabot alerts auto-closed and the
+   new `windows-latest` CI leg is green (first run pays the CUDA-torch
+   download; later runs hit the uv cache).
+2. Search relevance quality bar is still undefined (intent.md open
+   question) — no benchmarks exist beyond "returns merged results".
+3. Full-corpus indexing (1M rows) remains restore-on-demand: pull the
+   remaining LFS shards, then `index --dataset datasets/.../data`.
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
