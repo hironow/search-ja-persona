@@ -293,3 +293,12 @@ def test_application_search_passes_prefecture_filter() -> None:
     app.search("スキーが好き", limit=3, prefecture="北海道")
 
     assert search_service.search.call_args.kwargs["prefecture"] == "北海道"
+
+
+def test_application_config_passes_rrf_weights() -> None:
+    from search_ja_persona.application import ApplicationConfig, PersonaApplication
+
+    config = ApplicationConfig(rrf_weights=(2.0, 1.0))
+    app = PersonaApplication.build(config)
+
+    assert app.search_service.rrf_weights == (2.0, 1.0)

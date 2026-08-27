@@ -114,6 +114,8 @@ Each persona record contains:
 {
     "uuid": "...",
     "score": 0.87,  # cosine similarity (Qdrant) or ES _score
+    "rrf_score": 0.0325,  # weighted RRF score used for ranking
+    "sources": ["vector", "keyword"],  # which legs returned the hit
     "text": "...",  # aggregated persona text
     "prefecture": "...",
     "region": "...",
@@ -122,11 +124,20 @@ Each persona record contains:
 }
 ```
 
-## Score Semantics
+## Fusion and Score Semantics
 
-- **Vector hits** (Qdrant): `score` = cosine similarity (0-1, higher is better)
-- **Keyword fallback** (Elasticsearch): `score` = Elasticsearch relevance score
-- `--verbose` mode reveals `vector_hits`, `keyword_hits`, `context_calls` counts
+Results are ordered by weighted Reciprocal Rank Fusion over both legs:
+`rrf_score(d) = Σ_leg w_leg / (60 + rank_leg(d))`, with production weights
+1:1. Both legs are queried at `max(limit, min(limit * 3, 30))` depth for
+rank evidence; ties break by source count, then best single-leg rank, then
+uuid. Neo4j context is fetched only for the returned top-`limit`.
+
+- `rrf_score` = the fusion score the ranking is based on
+- `score` keeps its historical meaning: Qdrant cosine similarity when the
+  vector leg saw the hit, otherwise the Elasticsearch relevance score
+- `sources` lists the legs that returned the hit
+- `--verbose` mode reveals `vector_hits`, `keyword_hits`, `context_calls`
+  counts (leg counts are fetch-depth sized; context is top-`limit` only)
 
 ## Metadata Persistence
 

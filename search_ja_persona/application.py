@@ -14,7 +14,7 @@ from .embeddings import (
 from .indexer import PersonaIndexer
 from .persona_fields import PERSONA_TEXT_FIELDS
 from .repository import PersonaRepository
-from .search import PersonaSearchService
+from .search import DEFAULT_RRF_WEIGHTS, PersonaSearchService
 from .services import ElasticsearchService, Neo4jService, QdrantService
 
 
@@ -44,6 +44,7 @@ class ApplicationConfig:
     normalize_embeddings: bool = True
     fastembed_cache_dir: str | None = ".cache"
     persona_fields: tuple[str, ...] = PERSONA_TEXT_FIELDS
+    rrf_weights: tuple[float, float] = DEFAULT_RRF_WEIGHTS
 
 
 @dataclass
@@ -117,6 +118,7 @@ class PersonaApplication:
             elasticsearch=elasticsearch,
             neo4j=neo4j,
             persona_fields=persona_fields,
+            rrf_weights=config.rrf_weights,
         )
         return cls(
             config=config,

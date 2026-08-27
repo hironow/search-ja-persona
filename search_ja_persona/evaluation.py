@@ -203,6 +203,7 @@ def build_report(
     generated_at: str,
     elapsed_seconds: float,
     filtered: Sequence[dict[str, Any]] | None = None,
+    fusion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Assemble the JSON benchmark report (pure — no I/O, no clock).
 
@@ -226,6 +227,7 @@ def build_report(
     summary = summarize_golden(per_query)
     return {
         "report_schema_version": 3,
+        "fusion": fusion or {},
         "filtered": filtered_rows,
         "filtered_mean_precision": filtered_mean,
         "generated_at": generated_at,
@@ -243,6 +245,40 @@ def build_report(
         "self_retrieval": self_retrieval,
         "elapsed_seconds": round(elapsed_seconds, 1),
     }
+
+
+GOLDEN_BASIC_BAR = 0.85
+SELF_RETRIEVAL_RECALL_BAR = 0.99
+
+
+def check_thresholds(report: dict[str, Any]) -> list[str]:
+    """Return failure messages against the ratified intent.md bars.
+
+    Existence is verified before comparison: a missing metric is a
+    failure, never a silent pass. Report-only runs may skip sections;
+    check mode must not.
+    """
+
+    failures: list[str] = []
+    by_tier = report.get("golden_mean_precision_by_tier") or {}
+    basic = by_tier.get("basic")
+    if basic is None:
+        failures.append("basic tier missing from the report")
+    elif basic < GOLDEN_BASIC_BAR:
+        failures.append(f"basic mean precision {basic} < {GOLDEN_BASIC_BAR}")
+    if "hard" not in by_tier:
+        failures.append("hard tier missing from the report")
+    if not report.get("filtered"):
+        failures.append("filtered section empty (geo filters did not run)")
+    self_retrieval = report.get("self_retrieval") or {}
+    recall_1 = self_retrieval.get("recall_at_1")
+    if not self_retrieval.get("samples") or recall_1 is None:
+        failures.append("self-retrieval did not run")
+    elif recall_1 < SELF_RETRIEVAL_RECALL_BAR:
+        failures.append(
+            f"self-retrieval recall@1 {recall_1} < {SELF_RETRIEVAL_RECALL_BAR}"
+        )
+    return failures
 
 
 def recall_at_k(
