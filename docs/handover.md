@@ -113,16 +113,26 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   regenerated catalog snapshot. See
   `docs/research/2026-08-27-name-exclusion-results.md`.
 
+- **#49 name exclusion**: merged with the requester-ratified bar
+  amendment (recall@1 ≥ 0.90 ∧ recall@10 ≥ 0.99).
+- **golden maintenance (branch `fix/golden-maintenance`)**: Okinawa
+  predicate gains 泳ぎ/潮風/浜 (filtered FN healed → 1.00), the
+  degenerate washoku predicate rebuilt (random base 0.980 → 0.275,
+  exposing a genuinely weak query: fused 0.20 / vector 0.80), sadou
+  drops 着物. New baseline: basic 0.917 / hard 0.650 / filtered 0.950,
+  `--check-thresholds` green. See
+  `docs/research/2026-08-27-golden-maintenance.md`.
+
 ## In Progress
-- PR for `feat/name-exclusion` — merge on green per the session's
+- PR for `fix/golden-maintenance` — merge on green per the session's
   per-PR agreement.
 
 ## Next Actions
-1. Human decisions queued by the hardening research note: (a) new hard-tier
-   bar (proposed: hard mean precision@5 ≥ 0.35, baseline 0.433) as an
-   intent.md addition; (b) whether to fix the 3 degenerate basic predicates
-   (和食 random 0.980 / 茶道 0.495 / 登山 0.380) at the cost of re-basing
-   the bar; (c) ordering of the improvement candidates below.
+1. Human decisions queued: ratify the proposed bars — hard mean
+   precision@5 **≥ 0.55** (baseline 0.650) and filtered geo mean
+   **≥ 0.90** (baseline 0.950) — as intent.md additions enforced by
+   check_thresholds. (The earlier queued items — hard bar 0.35 proposal
+   and the degenerate-predicate question — are superseded/done.)
 2. Improvement candidates (each its own work unit, evidence in
    `docs/research/2026-08-27-golden-set-hardening.md`): ~~prefecture
    payload filter~~ (done) → ~~fusion redesign~~ (done — RRF adopted) →
