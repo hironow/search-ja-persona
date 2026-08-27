@@ -131,13 +131,19 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   drift, the months-dead graph context of #41, and the pre-RRF dead
   keyword leg). Live baseline: counts 1M×3, coverage 1.00, kw-rate 1.00.
 
+- **#53 name-lookup baseline**: `just eval-names` on a fixed stratified
+  40-name set — recall@1 **0.725** / recall@10 0.900; misses are
+  common-surname + short-given-name cases (CJK unigram BM25 limit).
+- **#54 panel example regenerated**: the bundled
+  `marimo/panel_example.jsonl` now reflects the current backend (RRF +
+  prefecture filter + name-stripped vectors): text きのこ 23-7 and
+  image きのこ 23-7 with brand-name verdicts — the old mode flip
+  (name-based kinoko vs photo-based takenoko) disappeared with the new
+  panel selection. `marimo/catalog_snapshot.json` was already
+  regenerated in #49.
+
 ## In Progress
-- PR for `feat/name-lookup-baseline` — `just eval-names` on a fixed
-  stratified 40-name set: recall@1 **0.725** / recall@10 0.900. Misses
-  are common-surname + short-given-name cases (CJK unigram BM25 limit).
-  Proposed floor bar: recall@1 ≥ 0.70 (requester word pending);
-  improvement candidate: an extracted-name keyword field in ES. See
-  `docs/research/2026-08-27-name-lookup-baseline.md`.
+Nothing in flight.
 
 ## Next Actions
 1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
