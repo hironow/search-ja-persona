@@ -327,6 +327,9 @@ def _write_index_metadata(
             "device": embedder_info.get("device"),
             "fastembed_cache_dir": embedder_info.get("fastembed_cache_dir"),
             "persona_fields": embedder_info.get("persona_fields"),
+            # Forensic record of how embedding inputs were derived; not
+            # part of the reset comparison (migrations run in place).
+            "embedding_text_policy": "strip-person-names-v1",
         },
         "qdrant": {
             "collection": args.qdrant_collection,

@@ -130,7 +130,9 @@ Results are ordered by weighted Reciprocal Rank Fusion over both legs:
 `rrf_score(d) = Σ_leg w_leg / (60 + rank_leg(d))`, with production weights
 1:1. Both legs are queried at `max(limit, min(limit * 3, 30))` depth for
 rank evidence; ties break by source count, then best single-leg rank, then
-uuid. Neo4j context is fetched only for the returned top-`limit`.
+keyword-leg presence (a BM25 rank-1 is a stronger identity signal than a
+vector rank-1 among near-duplicates), then uuid. Neo4j context is fetched
+only for the returned top-`limit`.
 
 - `rrf_score` = the fusion score the ranking is based on
 - `score` keeps its historical meaning: Qdrant cosine similarity when the
@@ -138,6 +140,11 @@ uuid. Neo4j context is fetched only for the returned top-`limit`.
 - `sources` lists the legs that returned the hit
 - `--verbose` mode reveals `vector_hits`, `keyword_hits`, `context_calls`
   counts (leg counts are fetch-depth sized; context is top-`limit` only)
+
+Embedding inputs exclude person names (`strip-person-names-v1`,
+`search_ja_persona/name_stripping.py`): vectors stop chasing surnames and
+given names, while stored text keeps them so BM25 name lookup and display
+are unchanged.
 
 ## Metadata Persistence
 

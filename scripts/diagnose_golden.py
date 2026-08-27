@@ -67,6 +67,24 @@ def _hex(value: object) -> str:
         return str(value)
 
 
+def _vector_results(
+    app: PersonaApplication, query: str, k: int
+) -> list[dict[str, Any]]:
+    vector = app.embedder.embed_query(query)
+    results: list[dict[str, Any]] = []
+    for hit in app.qdrant.search(vector, limit=k):
+        payload = hit.get("payload", {})
+        results.append(
+            {
+                "uuid": hit.get("id"),
+                "text": payload.get("text"),
+                "prefecture": payload.get("prefecture"),
+                "region": payload.get("region"),
+            }
+        )
+    return results
+
+
 def _keyword_results(
     app: PersonaApplication, query: str, k: int
 ) -> list[dict[str, Any]]:
@@ -126,8 +144,10 @@ def main(argv: list[str] | None = None) -> None:
     for entry in golden:
         query, expect, tier = entry["query"], entry["expect"], entry["tier"]
         fused = app.search(query, limit=args.k)
+        vector = _vector_results(app, query, args.k)
         keyword = _keyword_results(app, query, args.k)
         fused_rate = precision_at_k(fused, expect, k=args.k)
+        vector_rate = precision_at_k(vector, expect, k=args.k)
         keyword_rate = precision_at_k(keyword, expect, k=args.k)
         random_rate = precision_at_k(pool, expect, k=len(pool)) if pool else None
         filters = entry.get("filters")
@@ -149,6 +169,7 @@ def main(argv: list[str] | None = None) -> None:
                 "query": query,
                 "tier": tier,
                 "fused": fused_rate,
+                "vector": vector_rate,
                 "keyword": keyword_rate,
                 "random": random_rate,
                 "filtered": filtered_rate,
@@ -169,8 +190,9 @@ def main(argv: list[str] | None = None) -> None:
             f" | filt {filtered_rate:.2f}" if filtered_rate is not None else ""
         )
         print(
-            f"[{tier}] fused {fused_rate:.2f} | kw {keyword_rate:.2f} | "
-            f"rand {random_label} | overlap {overlap:.2f}{filtered_label}  {query}"
+            f"[{tier}] fused {fused_rate:.2f} | vec {vector_rate:.2f} | "
+            f"kw {keyword_rate:.2f} | rand {random_label} | "
+            f"overlap {overlap:.2f}{filtered_label}  {query}"
         )
 
     def _tier_mean(tier: str, key: str) -> float | None:
@@ -181,7 +203,10 @@ def main(argv: list[str] | None = None) -> None:
 
     print()
     for tier in ("basic", "hard"):
-        means = {key: _tier_mean(tier, key) for key in ("fused", "keyword", "random")}
+        means = {
+            key: _tier_mean(tier, key)
+            for key in ("fused", "vector", "keyword", "random")
+        }
         parts = " | ".join(
             f"{key} {value:.3f}" if value is not None else f"{key} n/a"
             for key, value in means.items()

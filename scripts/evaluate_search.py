@@ -186,7 +186,10 @@ def main(argv: list[str] | None = None) -> None:
             for failure in failures:
                 print(f"THRESHOLD FAIL: {failure}")
             raise SystemExit(1)
-        print("thresholds OK (basic >= 0.85, self-retrieval recall@1 >= 0.99)")
+        print(
+            "thresholds OK (basic >= 0.85, self-retrieval recall@1 >= 0.90, "
+            "recall@10 >= 0.99)"
+        )
 
 
 if __name__ == "__main__":

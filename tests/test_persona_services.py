@@ -716,15 +716,28 @@ def test_rrf_ranks_two_leg_consensus_above_single_leg_top() -> None:
     assert [hit["uuid"] for hit in results] == ["c", "b", "a"]
 
 
-def test_rrf_breaks_exact_ties_by_uuid() -> None:
-    service, _ = _fusion_service(
+def test_rrf_breaks_exact_ties_toward_the_keyword_leg() -> None:
+    # An exact-rank tie between the legs favors the keyword hit: a BM25
+    # rank-1 is a strong lexical match (names, rare terms), while a vector
+    # rank-1 among 1M near-duplicates is far less specific. uuid order is
+    # the final, nearly-unreachable determinism fallback.
+    keyword_low_uuid, _ = _fusion_service(
         [_vector_hit("z-vec")],
         [_keyword_hit("a-key")],
     )
+    assert [hit["uuid"] for hit in keyword_low_uuid.search("q", limit=2)] == [
+        "a-key",
+        "z-vec",
+    ]
 
-    results = service.search("クエリ", limit=2)
-
-    assert [hit["uuid"] for hit in results] == ["a-key", "z-vec"]
+    keyword_high_uuid, _ = _fusion_service(
+        [_vector_hit("a-vec")],
+        [_keyword_hit("z-key")],
+    )
+    assert [hit["uuid"] for hit in keyword_high_uuid.search("q", limit=2)] == [
+        "z-key",
+        "a-vec",
+    ]
 
 
 def test_rrf_weights_shift_the_order() -> None:

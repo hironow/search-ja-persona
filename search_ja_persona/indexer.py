@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .embeddings import Embedder
+from .name_stripping import strip_person_names
 from .persona_fields import PERSONA_TEXT_FIELDS
 from .repository import PersonaRepository
 from .services import ElasticsearchService, Neo4jService, QdrantService
@@ -42,19 +43,24 @@ class PersonaIndexer:
     def _process_batch(self, batch: list[dict]) -> None:
         composed = [self._compose_text(persona) for persona in batch]
         # One model call per batch: single-item embed calls would leave
-        # GPU/ONNX backends dominated by per-call overhead.
+        # GPU/ONNX backends dominated by per-call overhead. The embedding
+        # input has person names stripped (vectors chase names otherwise);
+        # the stored text keeps them for BM25 lookup and display.
         vectors = self.embedder.embed_documents(
-            [aggregated for aggregated, _ in composed]
+            [
+                "\n\n".join(text for text in strip_person_names(field_texts) if text)
+                for _, _, field_texts in composed
+            ]
         )
         qdrant_points = [
             self._build_qdrant_point(persona, aggregated, per_field, vector)
-            for persona, (aggregated, per_field), vector in zip(
+            for persona, (aggregated, per_field, _), vector in zip(
                 batch, composed, vectors, strict=True
             )
         ]
         es_documents = [
             self._build_elasticsearch_document(persona, aggregated, per_field)
-            for persona, (aggregated, per_field) in zip(batch, composed, strict=True)
+            for persona, (aggregated, per_field, _) in zip(batch, composed, strict=True)
         ]
 
         self.qdrant.upsert_points(qdrant_points)
@@ -93,7 +99,7 @@ class PersonaIndexer:
             document[field] = per_field.get(field)
         return document
 
-    def _compose_text(self, persona: dict) -> tuple[str, dict[str, str]]:
+    def _compose_text(self, persona: dict) -> tuple[str, dict[str, str], list[str]]:
         per_field: dict[str, str] = {}
         texts: list[str] = []
         for field in self.persona_fields:
@@ -102,4 +108,4 @@ class PersonaIndexer:
             if value:
                 texts.append(value)
         aggregated = "\n\n".join(texts)
-        return aggregated, per_field
+        return aggregated, per_field, texts

@@ -670,8 +670,15 @@ def test_cli_index_persists_metadata_when_reset_confirmed(
     assert data["embedder"]["vector_dimension"] == 8
 
 
-def test_reset_indexes_uses_batched_persona_delete() -> None:
+def test_reset_indexes_uses_batched_persona_delete(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     import argparse as argparse_module
+
+    # _reset_indexes unlinks METADATA_PATH: without this isolation the
+    # test deletes the developer's real .cache/index_metadata.json on
+    # every suite run (the original cause of the "vanishing metadata").
+    monkeypatch.setattr(cli, "METADATA_PATH", tmp_path / "metadata.json")
 
     recorded: dict[str, int] = {"batched_deletes": 0}
 

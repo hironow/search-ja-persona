@@ -15,6 +15,7 @@ Key components
 - `PersonaRepository` streams records from one or more parquet files (batch aware, limit ready).
 - `PersonaIndexer` normalizes persona text fields, builds embeddings, and writes to each emulator service.
 - `PersonaSearchService` embeds the query, runs Qdrant vector search and Elasticsearch keyword search in parallel roles, fuses both rankings with weighted Reciprocal Rank Fusion (RRF, K=60, production weights 1:1), and enriches the fused top hits with Neo4j persona context.
+- Embedding inputs exclude person names (vectors otherwise chase surnames — a 福岡-surnamed persona toward 福岡県 queries); stored text keeps the names, so keyword name lookup and display are unchanged.
 
 ## Score Semantics
 

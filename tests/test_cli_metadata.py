@@ -371,3 +371,27 @@ def test_repair_metadata_rejects_persona_fields_mismatch(
 
     assert excinfo.value.code == 2
     assert not metadata_path.exists()
+
+
+def test_index_metadata_records_embedding_text_policy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    metadata_path = _isolate_metadata(monkeypatch, tmp_path)
+    _record_console(monkeypatch)
+    transport = _StatsTransport(points=None)
+    _stats_backends(monkeypatch, transport)
+
+    class _NoopIndexer:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        def index(self, *, batch_size: int, limit: int | None) -> None:
+            pass
+
+    monkeypatch.setattr(cli, "PersonaIndexer", _NoopIndexer)
+    parquet = _write_parquet(tmp_path)
+
+    cli.main(["index", "--dataset", str(parquet), "--limit", "1"])
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["embedder"]["embedding_text_policy"] == "strip-person-names-v1"
