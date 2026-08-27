@@ -41,6 +41,11 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
     `merge_personas`, one transaction per batch. `just qa` overall:
     40s → 26s; verified against the live emulator (`just integration`,
     1000/1000 persona nodes).
+12. `fix(services)` backend response errors surfaced: Neo4j tx/commit
+    `errors` and Elasticsearch `_bulk` per-item errors (both hidden
+    behind HTTP 200) now raise RuntimeError with details. This is what
+    silently dropped 5/1000 personas in the old per-item merge path;
+    live-verified with a null-uuid merge.
 
 ## Next Actions
 1. Human: review and push `fix/windows-portability`, open a PR. The Dependabot
@@ -49,11 +54,9 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
    emulator non-goal vs. the vendored stack — is still unresolved.
 3. Consider a `windows-latest` leg in `ci.yaml` so Windows support cannot
    regress (not added here: unverifiable locally while push is forbidden).
-4. Neo4j tx/commit responses report statement errors in the body with
-   HTTP 200, and no service checks that field. The per-item merge path
-   silently dropped 5/1000 personas this way (batched UNWIND now lands
-   1000/1000). Surfacing `errors` from Neo4j (and Elasticsearch `_bulk`
-   item errors) would turn silent data loss into a visible failure.
+4. (resolved this session) Neo4j tx/commit and Elasticsearch `_bulk`
+   body-level errors are now raised as RuntimeError instead of being
+   silently ignored — see commit list item 12.
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
