@@ -12,7 +12,7 @@
 - Unit test suite under `tests/` passes (`just test`).
 - Integration tests against running emulators pass (`just integration`, `tests/test_integration_emulators.py`).
 - The QA flow works end-to-end on the locally generated 1k sample (`just qa-sample`; git-ignored, not checked in): `just qa` (= `qa-index` + `qa-search`) returns results for the default Japanese query.
-- 検索品質バー（`just eval --check-thresholds` で機械強制）: golden mean precision@5（basic tier）**≥ 0.85** かつ self-retrieval recall@1 **≥ 0.90** かつ recall@10 **≥ 0.99** を維持する。recall@1 バーは 2026-08-27 に requester 裁定で 0.99 から改定 — 人名除外埋め込み（匿名化ベクトルは同質ペルソナを意図的に等価へ寄せるため、名前入り本人要約での 1 位は保証対象外、top-10 内は保証）。ベースライン: basic 0.983 / recall 0.92 / 1.00 — `docs/research/2026-08-27-search-quality-baseline.md` および同日の name-exclusion note。
+- 検索品質バー（`just eval --check-thresholds` で機械強制）: golden mean precision@5（basic tier）**≥ 0.85** かつ self-retrieval recall@1 **≥ 0.90** かつ recall@10 **≥ 0.99** を維持する。recall@1 バーは 2026-08-27 に requester 裁定で 0.99 から改定 — 人名除外埋め込み（匿名化ベクトルは同質ペルソナを意図的に等価へ寄せるため、名前入り本人要約での 1 位は保証対象外、top-10 内は保証）。ベースライン（2026-08-27 golden 保守後）: basic 0.917 / recall 0.92 / 1.00 — `docs/research/2026-08-27-golden-maintenance.md` 参照。
 
 ## Scope
 ### In scope
