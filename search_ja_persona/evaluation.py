@@ -248,6 +248,10 @@ def build_report(
 
 
 GOLDEN_BASIC_BAR = 0.85
+# Ratified 2026-08-27 after the golden maintenance re-baseline
+# (hard 0.650 / filtered geo 0.950).
+GOLDEN_HARD_BAR = 0.55
+FILTERED_GEO_BAR = 0.90
 # Amended 2026-08-27 with the name-exclusion adoption: anonymized vectors
 # intentionally make same-vibe personas equivalent, so rank-1 by one's own
 # named summary is no longer owed; top-10 presence still is.
@@ -270,10 +274,18 @@ def check_thresholds(report: dict[str, Any]) -> list[str]:
         failures.append("basic tier missing from the report")
     elif basic < GOLDEN_BASIC_BAR:
         failures.append(f"basic mean precision {basic} < {GOLDEN_BASIC_BAR}")
-    if "hard" not in by_tier:
+    hard = by_tier.get("hard")
+    if hard is None:
         failures.append("hard tier missing from the report")
-    if not report.get("filtered"):
+    elif hard < GOLDEN_HARD_BAR:
+        failures.append(f"hard mean precision {hard} < {GOLDEN_HARD_BAR}")
+    filtered_mean = report.get("filtered_mean_precision")
+    if not report.get("filtered") or filtered_mean is None:
         failures.append("filtered section empty (geo filters did not run)")
+    elif filtered_mean < FILTERED_GEO_BAR:
+        failures.append(
+            f"filtered geo mean precision {filtered_mean} < {FILTERED_GEO_BAR}"
+        )
     self_retrieval = report.get("self_retrieval") or {}
     recall_1 = self_retrieval.get("recall_at_1")
     recall_10 = self_retrieval.get("recall_at_10")

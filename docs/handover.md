@@ -124,15 +124,13 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   `docs/research/2026-08-27-golden-maintenance.md`.
 
 ## In Progress
-- PR for `fix/golden-maintenance` — merge on green per the session's
-  per-PR agreement.
+- PR for `feat/ratified-bars` (hard/filtered bar mechanization) — merge
+  on green per the session's per-PR agreement.
 
 ## Next Actions
-1. Human decisions queued: ratify the proposed bars — hard mean
-   precision@5 **≥ 0.55** (baseline 0.650) and filtered geo mean
-   **≥ 0.90** (baseline 0.950) — as intent.md additions enforced by
-   check_thresholds. (The earlier queued items — hard bar 0.35 proposal
-   and the degenerate-predicate question — are superseded/done.)
+1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
+   ≥ 0.90 ratified and mechanized in check_thresholds + intent.md. All
+   five quality bars are now machine-enforced.
 2. Improvement candidates (each its own work unit, evidence in
    `docs/research/2026-08-27-golden-set-hardening.md`): ~~prefecture
    payload filter~~ (done) → ~~fusion redesign~~ (done — RRF adopted) →
