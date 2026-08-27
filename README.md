@@ -96,17 +96,14 @@ Override the default count with `--limit` when needed (for example, `--limit 200
 
 ### Full corpus (about 1,000,000 rows)
 
-Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` (requires the dataset submodule checked out — see [Getting the Dataset](#getting-the-dataset)) using a SentenceTransformer preset. Adjust `--batch-size` to match available memory; leaving `--limit` unset consumes all rows.
+Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` (requires the dataset submodule checked out — see [Getting the Dataset](#getting-the-dataset)) using a SentenceTransformer preset. `e5-large` (multilingual-e5-large, 1024 dims) is the recommended preset for Japanese relevance; adjust `--batch-size` to match available memory, and leaving `--limit` unset consumes all rows. Emulator hosts/ports default to the local stack, so no host flags are needed.
 
 ```bash
 uv run python -m search_ja_persona.cli index \
     --dataset datasets/Nemotron-Personas-Japan/data \
     --batch-size 512 \
-    --embedder mini-lm \
-    --persona-fields all \
-    --qdrant-host localhost --qdrant-port 6333 \
-    --es-host localhost --es-port 9200 \
-    --neo4j-host localhost --neo4j-port 7474
+    --embedder e5-large \
+    --persona-fields all
 ```
 
 ### QA sample (1,000 rows)
