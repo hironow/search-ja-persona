@@ -22,20 +22,23 @@ install-hooks:
 pre-commit:
     mise exec -- prek run --all-files
 
+# --frozen everywhere: a bare `uv run` re-resolves under machine-local uv
+# config and rewrites uv.lock as a side effect; the lock only changes via
+# an explicit `uv lock`.
 test:
-    UV_CACHE_DIR=.uv-cache uv run pytest
+    UV_CACHE_DIR=.uv-cache uv run --frozen pytest
 
 integration:
-    UV_CACHE_DIR=.uv-cache uv run pytest tests/test_integration_emulators.py -m integration
+    UV_CACHE_DIR=.uv-cache uv run --frozen pytest tests/test_integration_emulators.py -m integration
 
 qa-clear:
-    uv run python -m search_ja_persona.cli clear-emulators
+    uv run --frozen python -m search_ja_persona.cli clear-emulators
 
 qa-sample limit="1000":
-    uv run python -m scripts.generate_qa_sample --limit "{{limit}}"
+    uv run --frozen python -m scripts.generate_qa_sample --limit "{{limit}}"
 
 qa-index embedder="mini-lm" persona_fields="all":
-    uv run python -m search_ja_persona.cli index \
+    uv run --frozen python -m search_ja_persona.cli index \
         --dataset qa_samples/qa_sample.parquet \
         --batch-size 64 \
         --limit 1000 \
@@ -43,7 +46,7 @@ qa-index embedder="mini-lm" persona_fields="all":
         --persona-fields "{{persona_fields}}"
 
 qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" format="table" embedder="mini-lm" persona_fields="all":
-    uv run python -m search_ja_persona.cli search \
+    uv run --frozen python -m search_ja_persona.cli search \
         --query "{{query}}" \
         --limit "{{limit}}" \
         --format "{{format}}" \
@@ -55,8 +58,8 @@ qa: qa-index qa-search
 
 # Open the feature-catalog marimo notebook (pulls marimo[sql] on demand)
 notebook:
-    uv run --with "marimo[sql]" marimo edit marimo/catalog.py
+    uv run --frozen --with "marimo[sql]" marimo edit marimo/catalog.py
 
 # Headless-run the catalog notebook and export static HTML (validation/preview)
 notebook-export:
-    uv run --with "marimo[sql]" marimo export html marimo/catalog.py -o marimo/catalog.html
+    uv run --frozen --with "marimo[sql]" marimo export html marimo/catalog.py -o marimo/catalog.html
