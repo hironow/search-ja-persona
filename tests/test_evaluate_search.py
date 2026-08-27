@@ -56,3 +56,37 @@ def test_run_golden_without_filters_returns_empty_filtered_list() -> None:
 
     assert len(per_query) == 1
     assert filtered == []
+
+
+def test_run_golden_rows_carry_canary_fields() -> None:
+    class CanaryApp:
+        def search(
+            self, query: str, *, limit: int, prefecture: str | None = None
+        ) -> list[dict]:
+            return [
+                {
+                    "uuid": "1",
+                    "text": "介護の記録",
+                    "prefecture": "",
+                    "region": "",
+                    "sources": ["vector", "keyword"],
+                    "context": {"relationships": [{"type": "LIVES_IN"}]},
+                },
+                {
+                    "uuid": "2",
+                    "text": "別の記録",
+                    "prefecture": "",
+                    "region": "",
+                    "sources": ["vector"],
+                    "context": {"relationships": []},
+                },
+            ]
+
+    golden = [{"query": "介護", "tier": "basic", "expect": {"text_any": ["介護"]}}]
+
+    per_query, _ = run_golden(CanaryApp(), golden, k=2)
+
+    row = per_query[0]
+    assert row["results_returned"] == 2
+    assert row["results_with_context"] == 1
+    assert row["keyword_sourced"] is True

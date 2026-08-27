@@ -204,6 +204,7 @@ def build_report(
     elapsed_seconds: float,
     filtered: Sequence[dict[str, Any]] | None = None,
     fusion: dict[str, Any] | None = None,
+    store_counts: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Assemble the JSON benchmark report (pure — no I/O, no clock).
 
@@ -224,10 +225,35 @@ def build_report(
         if filtered_rows
         else None
     )
+    # Silent-death canaries: rows lacking the canary fields (old-style
+    # inputs) yield None rather than a fake healthy value.
+    canary_rows = [row for row in per_query if "results_returned" in row]
+    total_results = sum(row["results_returned"] for row in canary_rows)
+    context_coverage = (
+        round(
+            sum(row["results_with_context"] for row in canary_rows) / total_results,
+            4,
+        )
+        if total_results
+        else None
+    )
+    keyword_rate = (
+        round(
+            sum(1 for row in canary_rows if row.get("keyword_sourced"))
+            / len(canary_rows),
+            4,
+        )
+        if canary_rows
+        else None
+    )
+
     summary = summarize_golden(per_query)
     return {
         "report_schema_version": 3,
         "fusion": fusion or {},
+        "context_coverage": context_coverage,
+        "keyword_contribution_rate": keyword_rate,
+        "store_counts": store_counts,
         "filtered": filtered_rows,
         "filtered_mean_precision": filtered_mean,
         "generated_at": generated_at,
@@ -252,6 +278,9 @@ GOLDEN_BASIC_BAR = 0.85
 # (hard 0.650 / filtered geo 0.950).
 GOLDEN_HARD_BAR = 0.55
 FILTERED_GEO_BAR = 0.90
+# Silent-death canaries (ratified 2026-08-27): dead graph context, a dead
+# keyword leg, and store-count drift were all invisible until hunted down.
+CONTEXT_COVERAGE_BAR = 0.99
 # Amended 2026-08-27 with the name-exclusion adoption: anonymized vectors
 # intentionally make same-vibe personas equivalent, so rank-1 by one's own
 # named summary is no longer owed; top-10 presence still is.
@@ -300,6 +329,26 @@ def check_thresholds(report: dict[str, Any]) -> list[str]:
             failures.append(
                 f"self-retrieval recall@10 {recall_10} < {SELF_RETRIEVAL_RECALL_10_BAR}"
             )
+
+    coverage = report.get("context_coverage")
+    if coverage is None:
+        failures.append("context coverage was not measured")
+    elif coverage < CONTEXT_COVERAGE_BAR:
+        failures.append(f"context coverage {coverage} < {CONTEXT_COVERAGE_BAR}")
+
+    keyword_rate = report.get("keyword_contribution_rate")
+    if keyword_rate is None:
+        failures.append("keyword contribution was not measured")
+    elif keyword_rate <= 0.0:
+        failures.append("keyword leg contributed to no query (dead leg)")
+
+    store_counts = report.get("store_counts")
+    if not store_counts:
+        failures.append("store counts were not collected")
+    elif len(set(store_counts.values())) != 1 or not all(
+        count > 0 for count in store_counts.values()
+    ):
+        failures.append(f"store counts disagree: {store_counts}")
     return failures
 
 
