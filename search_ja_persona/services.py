@@ -230,7 +230,27 @@ class ElasticsearchService:
             body=payload,
             headers={"Content-Type": "application/x-ndjson"},
         )
-        return self.transport.request(request)
+        response = self.transport.request(request)
+        # _bulk answers HTTP 200 even when individual documents fail; the
+        # per-item errors only appear in the response body.
+        if response.get("errors"):
+            failed = [
+                item
+                for action in response.get("items", [])
+                for item in action.values()
+                if item.get("error")
+            ]
+            details = "; ".join(
+                f"{item.get('_id', 'unknown')}: "
+                f"{item['error'].get('type', 'unknown')} - "
+                f"{item['error'].get('reason', '')}"
+                for item in failed[:5]
+            )
+            raise RuntimeError(
+                f"Elasticsearch bulk indexing failed for {len(failed)} "
+                f"document(s): {details}"
+            )
+        return response
 
     def search(self, query: str, *, limit: int = 5) -> dict[str, Any]:
         body = {
@@ -304,7 +324,20 @@ class Neo4jService:
             path="/db/neo4j/tx/commit",
             body={"statements": [{"statement": statement, "parameters": parameters}]},
         )
-        return self.transport.request(request)
+        return self._raise_on_statement_errors(self.transport.request(request))
+
+    @staticmethod
+    def _raise_on_statement_errors(response: dict[str, Any]) -> dict[str, Any]:
+        # tx/commit answers HTTP 200 even when the statement fails; the
+        # failure only appears in the body's errors list.
+        errors = response.get("errors") or []
+        if errors:
+            details = "; ".join(
+                f"{error.get('code', 'unknown')}: {error.get('message', '')}"
+                for error in errors
+            )
+            raise RuntimeError(f"Neo4j statement failed: {details}")
+        return response
 
     def fetch_persona_context(self, uuid: str) -> dict[str, Any]:
         statement = (
@@ -320,7 +353,7 @@ class Neo4jService:
                 "statements": [{"statement": statement, "parameters": {"uuid": uuid}}]
             },
         )
-        response = self.transport.request(request)
+        response = self._raise_on_statement_errors(self.transport.request(request))
         results = response.get("results", [])
         if not results:
             return {"uuid": uuid, "relationships": []}
