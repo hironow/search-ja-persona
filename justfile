@@ -66,6 +66,14 @@ eval:
 diagnose:
     uv run --frozen python -m scripts.diagnose_golden
 
+# One-off migration: create the prefecture keyword payload index on an
+# existing Qdrant collection (idempotent; new collections get it at index time)
+ensure-payload-index qdrant_host="127.0.0.1" qdrant_port="6333" qdrant_collection="personas":
+    uv run --frozen python -m scripts.ensure_payload_index \
+        --qdrant-host "{{qdrant_host}}" \
+        --qdrant-port "{{qdrant_port}}" \
+        --qdrant-collection "{{qdrant_collection}}"
+
 # Index the full corpus one shard at a time. Each shard is a checkpoint:
 # uuid-keyed upserts make reruns idempotent, so on failure rerun from the
 # failed shard only (or rerun the whole recipe; completed shards just

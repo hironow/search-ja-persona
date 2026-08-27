@@ -195,3 +195,72 @@ def test_index_and_search_with_emulators(tmp_path: Path) -> None:
         assert results[0]["uuid"] == sample_rows[0]["uuid"]
     finally:
         _cleanup_resources(app, uuids)
+
+
+def test_prefecture_filtered_search_with_emulators(tmp_path: Path) -> None:
+    rows = [
+        {
+            "uuid": uuid4().hex,
+            "persona": "スキーとスノーボードを楽しむ会社員",
+            "prefecture": "北海道",
+            "region": "北海道地方",
+        },
+        {
+            "uuid": uuid4().hex,
+            "persona": "スキーとスノーボードを楽しむ会社員",
+            "prefecture": "東京都",
+            "region": "関東地方",
+        },
+    ]
+    parquet_path = tmp_path / "sample.parquet"
+    PersonaRepository.write_sample(parquet_path, rows)
+
+    unique_suffix = uuid4().hex[:12]
+    config = ApplicationConfig(
+        qdrant_collection=f"test_personas_{unique_suffix}",
+        es_index=f"test-personas-{unique_suffix}",
+    )
+    _ensure_emulators_available(config)
+    app = PersonaApplication.build(config)
+    uuids = [row["uuid"] for row in rows]
+
+    try:
+        app.index([parquet_path], batch_size=len(rows))
+
+        # The payload index is created at index time; the migration path
+        # (a second ensure) must be an idempotent noop.
+        info = app.qdrant.transport.request(
+            RequestDescriptor("GET", f"/collections/{app.qdrant.collection}")
+        )
+        schema = info.get("result", {}).get("payload_schema", {})
+        assert schema.get("prefecture", {}).get("data_type") == "keyword"
+        assert app.qdrant.ensure_payload_index() == {"status": "exists"}
+
+        # Elasticsearch answers from refreshed segments only.
+        app.elasticsearch.transport.request(
+            RequestDescriptor("POST", f"/{app.elasticsearch.index}/_refresh")
+        )
+
+        query = "スキーが好きな人"
+        vector = app.embedder.embed_query(query)
+        vector_hits = app.qdrant.search(vector, limit=5, prefecture="北海道")
+        assert vector_hits
+        assert all(
+            hit.get("payload", {}).get("prefecture") == "北海道" for hit in vector_hits
+        )
+
+        keyword_hits = (
+            app.elasticsearch.search(query, limit=5, prefecture="北海道")
+            .get("hits", {})
+            .get("hits", [])
+        )
+        assert keyword_hits
+        assert all(
+            hit.get("_source", {}).get("prefecture") == "北海道" for hit in keyword_hits
+        )
+
+        fused = app.search(query, limit=5, prefecture="北海道")
+        assert fused
+        assert all(hit.get("prefecture") == "北海道" for hit in fused)
+    finally:
+        _cleanup_resources(app, uuids)

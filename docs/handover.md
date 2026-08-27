@@ -45,7 +45,7 @@ The full corpus is indexed and verified. PRs #35–#38 are squash-merged on
   ratified the quality bar in intent.md (basic golden mean ≥ 0.85,
   recall@1 ≥ 0.99) — see
   `docs/research/2026-08-27-search-quality-baseline.md`.
-- **golden eval hardening (branch `feat/harden-golden-eval`)**: the golden
+- **#44 golden eval hardening**: the golden
   set graded too kindly (one predicate matched 98% of random personas).
   Now tiered — 12 frozen "basic" queries (the bar metric) + 12 "hard"
   (multi-aspect `text_all`, geo+theme, paraphrase), runtime-validated
@@ -63,9 +63,19 @@ hold exactly **1,000,000** personas (ground truth: 1,000,000 distinct uuids,
 parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
 77 passed / 1 skipped; CI (ubuntu + windows) green; open Dependabot alerts: 0.
 
+- **prefecture filter (branch `feat/prefecture-filter`)**: residency is
+  now an explicit filter — `--prefecture` (validated against the 47
+  official names) drives a Qdrant payload filter + ES term filter; the
+  keyword payload index is created at index time for new collections and
+  was backfilled onto the live 1M via `just ensure-payload-index`
+  (idempotent migration; search path stays read-only). Benchmark schema
+  v3 adds a paired filtered section: **filtered geo mean 1.000 (n=4)**
+  vs 0.65 unfiltered, with tier means untouched (basic 0.900 / hard
+  0.433). See `docs/research/2026-08-27-prefecture-filter-results.md`.
+
 ## In Progress
-- PR for `feat/harden-golden-eval` (tiered golden eval + diagnostics) —
-  merge on green per the session's per-PR agreement.
+- PR for `feat/prefecture-filter` — merge on green per the session's
+  per-PR agreement.
 
 ## Next Actions
 1. Human decisions queued by the hardening research note: (a) new hard-tier
@@ -74,11 +84,11 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
    (和食 random 0.980 / 茶道 0.495 / 登山 0.380) at the cost of re-basing
    the bar; (c) ordering of the improvement candidates below.
 2. Improvement candidates (each its own work unit, evidence in
-   `docs/research/2026-08-27-golden-set-hardening.md`):
-   prefecture payload filter (geo class, no reindex) → fusion redesign
-   (keyword leg is effectively unused; BM25 alone beats fused on the
-   predicate metrics) → name-token exclusion at embed time (needs ~50min
-   reindex) → pooled human qrels.
+   `docs/research/2026-08-27-golden-set-hardening.md`): ~~prefecture
+   payload filter~~ (done — geo class solved, filtered mean 1.000) →
+   fusion redesign (keyword leg is effectively unused; BM25 alone beats
+   fused on the predicate metrics) → name-token exclusion at embed time
+   (needs ~50min reindex) → pooled human qrels.
 3. Tooling candidate (from the plan review): this repo has no `just check`
    aggregate gate and no mypy/semgrep; the enforced gate today is
    `just pre-commit` + `just test` (mirrors CI). Adding the full AGENTS.md
@@ -97,6 +107,11 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   Desktop's engine needs to be started first on Windows. Volumes persist
   across stop/down/reboot — only `down -v`, volume prune, or a Docker
   Desktop purge destroy them (see README "Emulator Data Persistence").
+- `.cache/index_metadata.json` is currently absent, so a bare CLI
+  `search` (no `--embedder`) falls back to the hashed 256-dim preset and
+  fails against the 768-dim live collection — pass
+  `--embedder ruri-v3-310m` explicitly (or rerun an index to rewrite the
+  metadata).
 - `scripts/generate_qa_sample.py` still requires the HF cache
   (`download-dataset`); the current `qa_samples/qa_sample.parquet` was cut
   directly from shard 0 of the submodule (all 8 LFS shards are pulled,

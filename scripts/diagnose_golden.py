@@ -130,6 +130,13 @@ def main(argv: list[str] | None = None) -> None:
         fused_rate = precision_at_k(fused, expect, k=args.k)
         keyword_rate = precision_at_k(keyword, expect, k=args.k)
         random_rate = precision_at_k(pool, expect, k=len(pool)) if pool else None
+        filters = entry.get("filters")
+        filtered_rate = None
+        if filters is not None:
+            filtered_hits = app.search(
+                query, limit=args.k, prefecture=filters["prefecture"]
+            )
+            filtered_rate = precision_at_k(filtered_hits, expect, k=args.k)
         overlap = (
             len(
                 {_hex(hit.get("uuid")) for hit in fused}
@@ -144,6 +151,7 @@ def main(argv: list[str] | None = None) -> None:
                 "fused": fused_rate,
                 "keyword": keyword_rate,
                 "random": random_rate,
+                "filtered": filtered_rate,
                 "fused_keyword_overlap": overlap,
                 "fused_hits": [
                     {
@@ -157,9 +165,12 @@ def main(argv: list[str] | None = None) -> None:
             }
         )
         random_label = f"{random_rate:.3f}" if random_rate is not None else "n/a"
+        filtered_label = (
+            f" | filt {filtered_rate:.2f}" if filtered_rate is not None else ""
+        )
         print(
             f"[{tier}] fused {fused_rate:.2f} | kw {keyword_rate:.2f} | "
-            f"rand {random_label} | overlap {overlap:.2f}  {query}"
+            f"rand {random_label} | overlap {overlap:.2f}{filtered_label}  {query}"
         )
 
     def _tier_mean(tier: str, key: str) -> float | None:

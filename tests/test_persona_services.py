@@ -91,6 +91,12 @@ def test_indexer_invokes_all_services(tmp_path: Path) -> None:
     fake_transport = FakeTransport()
     fake_transport.enqueue_response({"result": "ok"})  # Qdrant create collection
     fake_transport.enqueue_response(
+        {"result": {"payload_schema": {}}}
+    )  # Qdrant collection info (payload index check)
+    fake_transport.enqueue_response(
+        {"result": {"status": "acknowledged"}}
+    )  # Qdrant create payload index
+    fake_transport.enqueue_response(
         {"acknowledged": True}
     )  # Elasticsearch index create
     fake_transport.enqueue_response({"results": []})  # Neo4j ensure constraints
@@ -524,3 +530,135 @@ def test_search_fetches_context_with_dataset_uuid_format() -> None:
     neo4j.fetch_persona_context.assert_called_once_with(
         "63f4de5a14e74acda91816138ef70dfe"
     )
+
+
+def test_qdrant_search_applies_prefecture_filter() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"result": []})
+    service = QdrantService(
+        transport=transport,
+        host="localhost",
+        port=6333,
+        collection="personas",
+        vector_size=2,
+    )
+
+    service.search([0.1, 0.2], limit=3, prefecture="北海道")
+
+    body = transport.requests[0].body
+    assert body["filter"] == {
+        "must": [{"key": "prefecture", "match": {"value": "北海道"}}]
+    }
+
+
+def test_qdrant_search_omits_filter_by_default() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"result": []})
+    service = QdrantService(
+        transport=transport,
+        host="localhost",
+        port=6333,
+        collection="personas",
+        vector_size=2,
+    )
+
+    service.search([0.1, 0.2], limit=3)
+
+    assert "filter" not in transport.requests[0].body
+
+
+def _qdrant(transport: FakeTransport) -> QdrantService:
+    return QdrantService(
+        transport=transport,
+        host="localhost",
+        port=6333,
+        collection="personas",
+        vector_size=2,
+    )
+
+
+def test_qdrant_ensure_payload_index_creates_when_missing() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"result": {"payload_schema": {}}})
+    transport.enqueue_response({"result": {"status": "acknowledged"}})
+
+    _qdrant(transport).ensure_payload_index()
+
+    get_request, put_request = transport.requests
+    assert get_request.method == "GET"
+    assert get_request.path == "/collections/personas"
+    assert put_request.method == "PUT"
+    assert put_request.path == "/collections/personas/index?wait=true"
+    assert put_request.body == {"field_name": "prefecture", "field_schema": "keyword"}
+
+
+def test_qdrant_ensure_payload_index_noops_on_existing_keyword() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response(
+        {"result": {"payload_schema": {"prefecture": {"data_type": "keyword"}}}}
+    )
+
+    response = _qdrant(transport).ensure_payload_index()
+
+    assert response == {"status": "exists"}
+    assert len(transport.requests) == 1
+
+
+def test_qdrant_ensure_payload_index_rejects_other_schema() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response(
+        {"result": {"payload_schema": {"prefecture": {"data_type": "integer"}}}}
+    )
+
+    with pytest.raises(RuntimeError, match="prefecture"):
+        _qdrant(transport).ensure_payload_index()
+
+
+def _elastic(transport: FakeTransport) -> ElasticsearchService:
+    return ElasticsearchService(
+        transport=transport, host="localhost", port=9200, index="personas"
+    )
+
+
+def test_elasticsearch_search_applies_prefecture_filter() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"hits": {"hits": []}})
+
+    _elastic(transport).search("スキーが好き", limit=3, prefecture="北海道")
+
+    body = transport.requests[0].body
+    assert body["query"]["bool"]["filter"] == [{"term": {"prefecture": "北海道"}}]
+    assert body["query"]["bool"]["must"][0]["multi_match"]["query"] == "スキーが好き"
+
+
+def test_elasticsearch_search_keeps_plain_query_without_filter() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response({"hits": {"hits": []}})
+
+    _elastic(transport).search("スキーが好き", limit=3)
+
+    body = transport.requests[0].body
+    assert "bool" not in body["query"]
+    assert body["query"]["multi_match"]["query"] == "スキーが好き"
+
+
+def test_search_service_passes_prefecture_to_both_legs() -> None:
+    embedder = Mock()
+    embedder.embed_query.return_value = [0.1]
+    qdrant = Mock()
+    qdrant.search.return_value = []
+    elasticsearch = Mock()
+    elasticsearch.search.return_value = {"hits": {"hits": []}}
+    neo4j = Mock()
+
+    service = PersonaSearchService(
+        embedder=embedder,
+        qdrant=qdrant,
+        elasticsearch=elasticsearch,
+        neo4j=neo4j,
+    )
+
+    service.search("スキーが好き", limit=3, prefecture="北海道")
+
+    assert qdrant.search.call_args.kwargs["prefecture"] == "北海道"
+    assert elasticsearch.search.call_args.kwargs["prefecture"] == "北海道"

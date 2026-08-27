@@ -93,7 +93,14 @@ def test_cli_search_outputs_results(
         def __init__(self, **_: Any) -> None:
             pass
 
-        def search(self, query: str, limit: int, *, return_stats: bool = False):
+        def search(
+            self,
+            query: str,
+            limit: int,
+            *,
+            return_stats: bool = False,
+            prefecture: str | None = None,
+        ):
             results = [
                 {
                     "uuid": "1",
@@ -135,7 +142,14 @@ def test_cli_search_verbose_outputs_logs(
         def __init__(self, **_: Any) -> None:
             pass
 
-        def search(self, query: str, limit: int, *, return_stats: bool = False):
+        def search(
+            self,
+            query: str,
+            limit: int,
+            *,
+            return_stats: bool = False,
+            prefecture: str | None = None,
+        ):
             results = [
                 {
                     "uuid": "1",
@@ -654,3 +668,62 @@ def test_reset_indexes_uses_batched_persona_delete() -> None:
     cli._reset_indexes(FakeHttpService(), FakeHttpService(), RecordingNeo4j(), args)
 
     assert recorded["batched_deletes"] == 1
+
+
+def test_cli_search_passes_prefecture_filter(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeSearchService:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        def search(
+            self,
+            query: str,
+            limit: int,
+            *,
+            return_stats: bool = False,
+            prefecture: str | None = None,
+        ):
+            captured["prefecture"] = prefecture
+            return []
+
+    monkeypatch.setattr(cli, "PersonaSearchService", FakeSearchService)
+    monkeypatch.setattr(cli, "METADATA_PATH", tmp_path / "metadata.json")
+    monkeypatch.setattr(cli, "console", Console(record=True))
+
+    cli.main(
+        [
+            "search",
+            "--query",
+            "スキーが好き",
+            "--limit",
+            "1",
+            "--format",
+            "json",
+            "--prefecture",
+            "北海道",
+        ]
+    )
+
+    assert captured["prefecture"] == "北海道"
+
+
+def test_cli_search_rejects_colloquial_prefecture(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(cli, "METADATA_PATH", tmp_path / "metadata.json")
+    monkeypatch.setattr(cli, "console", Console(record=True))
+
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "search",
+                "--query",
+                "海が好き",
+                "--prefecture",
+                "沖縄",
+            ]
+        )

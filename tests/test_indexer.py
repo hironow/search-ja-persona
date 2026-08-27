@@ -33,9 +33,13 @@ class FakeRepository:
 class FakeQdrant:
     def __init__(self) -> None:
         self.points: list[dict[str, Any]] = []
+        self.payload_index_ensured = 0
 
     def ensure_collection(self) -> None:
         pass
+
+    def ensure_payload_index(self) -> None:
+        self.payload_index_ensured += 1
 
     def upsert_points(self, points) -> None:
         self.points.extend(points)
@@ -110,3 +114,4 @@ def test_indexer_encodes_each_batch_in_one_call() -> None:
     assert [len(batch) for batch in neo4j.batches] == [2, 1]
     assert [persona["uuid"] for persona in neo4j.batches[0]] == ["id-0", "id-1"]
     assert neo4j.constraints_ensured == 1
+    assert qdrant.payload_index_ensured == 1

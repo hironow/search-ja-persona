@@ -17,8 +17,11 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from .prefectures import validate_prefecture
+
 _EXPECT_KEYS = frozenset({"text_any", "text_all", "prefecture", "region"})
-_ENTRY_KEYS = frozenset({"query", "expect", "tier"})
+_ENTRY_KEYS = frozenset({"query", "expect", "tier", "filters"})
+_FILTER_KEYS = frozenset({"prefecture"})
 _TIERS = frozenset({"basic", "hard"})
 
 
@@ -66,6 +69,15 @@ def _validate_expect(expect: object, label: str) -> None:
             raise ValueError(f"{label}: empty {field}")
 
 
+def _validate_filters(filters: object, label: str) -> None:
+    if not isinstance(filters, dict) or not filters:
+        raise ValueError(f"{label}: empty filters")
+    unknown = set(filters) - _FILTER_KEYS
+    if unknown:
+        raise ValueError(f"{label}: unknown filters key {sorted(unknown)}")
+    validate_prefecture(str(filters["prefecture"]))
+
+
 def load_golden_queries(path: str | Path) -> list[dict[str, Any]]:
     """Load and validate the golden-query set, failing fast on bad data.
 
@@ -101,6 +113,8 @@ def load_golden_queries(path: str | Path) -> list[dict[str, Any]]:
             raise ValueError(f"{label}: unknown tier {tier!r}")
         seen_tiers.add(tier)
         _validate_expect(entry.get("expect"), label)
+        if "filters" in entry:
+            _validate_filters(entry["filters"], label)
 
     for tier in sorted(_TIERS):
         if tier not in seen_tiers:
@@ -188,17 +202,32 @@ def build_report(
     k: int,
     generated_at: str,
     elapsed_seconds: float,
+    filtered: Sequence[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the JSON benchmark report (pure — no I/O, no clock).
 
-    Schema version 2: ``golden_queries`` holds every row with its ``tier``;
+    Schema version 3: ``golden_queries`` holds every row with its ``tier``;
     ``golden_mean_precision`` remains the basic-tier mean (the intent.md
-    bar), with overall and per-tier means under separate keys.
+    bar), with overall and per-tier means under separate keys. All tier
+    means are computed from unfiltered runs only; ``filtered`` carries the
+    paired filtered reruns of entries that declare ``filters``.
     """
 
+    filtered_rows = list(filtered or [])
+    filtered_mean = (
+        round(
+            sum(row["filtered_precision_at_k"] for row in filtered_rows)
+            / len(filtered_rows),
+            4,
+        )
+        if filtered_rows
+        else None
+    )
     summary = summarize_golden(per_query)
     return {
-        "report_schema_version": 2,
+        "report_schema_version": 3,
+        "filtered": filtered_rows,
+        "filtered_mean_precision": filtered_mean,
         "generated_at": generated_at,
         "embedder": embedder,
         "k": k,

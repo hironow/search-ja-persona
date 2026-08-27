@@ -47,21 +47,59 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def run_golden(
+    app: PersonaApplication, golden: list[dict], *, k: int
+) -> tuple[list[dict], list[dict]]:
+    """Score every query unfiltered; rerun filtered variants separately.
+
+    Tier means stay comparable across baselines because they only ever see
+    the unfiltered scores; entries carrying ``filters`` additionally run
+    with the filter applied and land in the second list with their paired
+    delta.
+    """
+
+    per_query: list[dict] = []
+    filtered_rows: list[dict] = []
+    for entry in golden:
+        results = app.search(entry["query"], limit=k)
+        score = precision_at_k(results, entry["expect"], k=k)
+        per_query.append(
+            {"query": entry["query"], "tier": entry["tier"], "precision_at_k": score}
+        )
+        print(f"precision@{k} {score:.2f}  [{entry['tier']}]  {entry['query']}")
+
+        filters = entry.get("filters")
+        if filters is None:
+            continue
+        filtered_results = app.search(
+            entry["query"], limit=k, prefecture=filters["prefecture"]
+        )
+        filtered_score = precision_at_k(filtered_results, entry["expect"], k=k)
+        filtered_rows.append(
+            {
+                "query": entry["query"],
+                "tier": entry["tier"],
+                "filters": filters,
+                "unfiltered_precision_at_k": score,
+                "filtered_precision_at_k": filtered_score,
+                "delta": round(filtered_score - score, 4),
+            }
+        )
+        print(
+            f"precision@{k} {filtered_score:.2f}  [{entry['tier']}/filtered "
+            f"{filters['prefecture']}]  {entry['query']}"
+        )
+    return per_query, filtered_rows
+
+
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     # Validate the golden set before touching any live service.
     golden = load_golden_queries(GOLDEN_PATH)
     app = PersonaApplication.build(ApplicationConfig(embedder=args.embedder))
 
-    per_query: list[dict] = []
     started = time.perf_counter()
-    for entry in golden:
-        results = app.search(entry["query"], limit=args.k)
-        score = precision_at_k(results, entry["expect"], k=args.k)
-        per_query.append(
-            {"query": entry["query"], "tier": entry["tier"], "precision_at_k": score}
-        )
-        print(f"precision@{args.k} {score:.2f}  [{entry['tier']}]  {entry['query']}")
+    per_query, filtered_rows = run_golden(app, golden, k=args.k)
 
     recall_1 = recall_10 = 0
     sampled = 0
@@ -84,6 +122,7 @@ def main(argv: list[str] | None = None) -> None:
     elapsed = time.perf_counter() - started
     report = build_report(
         per_query=per_query,
+        filtered=filtered_rows,
         self_retrieval={
             "samples": sampled,
             "recall_at_1": round(recall_1 / sampled, 4) if sampled else None,
@@ -97,10 +136,17 @@ def main(argv: list[str] | None = None) -> None:
 
     by_tier = report["golden_mean_precision_by_tier"]
     tier_summary = " | ".join(f"{tier} {value:.3f}" for tier, value in by_tier.items())
+    filtered_summary = ""
+    if report["filtered_mean_precision"] is not None:
+        filtered_summary = (
+            f"filtered geo {report['filtered_mean_precision']:.3f} "
+            f"(n={len(report['filtered'])}) | "
+        )
     print(
         f"\ngolden precision@{args.k}: {tier_summary} | "
         f"overall {report['golden_overall_mean_precision']:.3f} "
         f"(bar metric = basic) | "
+        f"{filtered_summary}"
         f"self-retrieval recall@1: {report['self_retrieval']['recall_at_1']} "
         f"recall@10: {report['self_retrieval']['recall_at_10']} "
         f"(n={sampled}) | {elapsed:.1f}s"

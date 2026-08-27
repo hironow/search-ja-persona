@@ -146,8 +146,10 @@ class PersonaApplication:
         )
         indexer.index(batch_size=batch_size, limit=limit)
 
-    def search(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
-        return self.search_service.search(query, limit=limit)
+    def search(
+        self, query: str, *, limit: int = 5, prefecture: str | None = None
+    ) -> list[dict[str, Any]]:
+        return self.search_service.search(query, limit=limit, prefecture=prefecture)
 
     @staticmethod
     def _expand_dataset_paths(entries: Iterable[str | Path]) -> list[Path]:
