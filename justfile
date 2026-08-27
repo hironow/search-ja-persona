@@ -56,6 +56,20 @@ qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" 
 
 qa: qa-index qa-search
 
+# Index the full corpus one shard at a time. Each shard is a checkpoint:
+# uuid-keyed upserts make reruns idempotent, so on failure rerun from the
+# failed shard only (or rerun the whole recipe; completed shards just
+# overwrite themselves).
+full-index embedder="ruri-v3-310m" batch_size="512":
+    for shard in datasets/Nemotron-Personas-Japan/data/train-*.parquet; do \
+        echo "=== indexing ${shard}"; \
+        uv run --frozen python -m search_ja_persona.cli index \
+            --dataset "${shard}" \
+            --batch-size "{{batch_size}}" \
+            --embedder "{{embedder}}" \
+            --persona-fields all || exit 1; \
+    done
+
 # Open the feature-catalog marimo notebook (pulls marimo[sql] on demand)
 notebook:
     uv run --frozen --with "marimo[sql]" marimo edit marimo/catalog.py

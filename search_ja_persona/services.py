@@ -314,6 +314,36 @@ class Neo4jService:
         )
         return self._raise_on_statement_errors(self.transport.request(request))
 
+    def delete_all_personas(self, *, batch_size: int = 10_000) -> int:
+        # A single-transaction DETACH DELETE over a large graph exhausts the
+        # server heap; delete in LIMIT-ed rounds, one transaction per round.
+        statement = (
+            "MATCH (p:Persona) WITH p LIMIT $batch_size "
+            "DETACH DELETE p RETURN count(p) AS deleted"
+        )
+        total = 0
+        while True:
+            request = RequestDescriptor(
+                method="POST",
+                path="/db/neo4j/tx/commit",
+                body={
+                    "statements": [
+                        {
+                            "statement": statement,
+                            "parameters": {"batch_size": batch_size},
+                        }
+                    ]
+                },
+            )
+            response = self._raise_on_statement_errors(self.transport.request(request))
+            results = response.get("results", [])
+            data = results[0].get("data", []) if results else []
+            row = data[0].get("row", []) if data else []
+            deleted = int(row[0]) if row else 0
+            if deleted == 0:
+                return total
+            total += deleted
+
     def merge_persona(self, persona: dict[str, Any]) -> dict[str, Any]:
         return self.merge_personas([persona])
 

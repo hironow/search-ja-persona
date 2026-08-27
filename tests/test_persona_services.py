@@ -414,3 +414,23 @@ def test_search_service_embeds_query_with_query_semantics() -> None:
     service.search("介護", limit=1)
 
     assert embedder.queries == ["介護"]
+
+
+def test_neo4j_delete_all_personas_batches_until_empty() -> None:
+    transport = FakeTransport()
+    transport.enqueue_response(
+        {"results": [{"columns": ["deleted"], "data": [{"row": [2]}]}], "errors": []}
+    )
+    transport.enqueue_response(
+        {"results": [{"columns": ["deleted"], "data": [{"row": [0]}]}], "errors": []}
+    )
+    service = Neo4jService(transport=transport, host="localhost", port=7474)
+
+    deleted = service.delete_all_personas(batch_size=2)
+
+    assert deleted == 2
+    assert len(transport.requests) == 2
+    first = transport.requests[0].body["statements"][0]
+    assert "LIMIT $batch_size" in first["statement"]
+    assert "DETACH DELETE" in first["statement"]
+    assert first["parameters"] == {"batch_size": 2}
