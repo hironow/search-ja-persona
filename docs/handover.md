@@ -4,90 +4,78 @@
 **Updated by:** claude (AI session, Windows workstation)
 
 ## Current State
-Windows (11 + Docker Desktop/WSL2) is now a verified dev environment: `uv sync
---frozen`, the unit suite (31 passed / 1 skipped), `just integration` against
-live emulators, and the full `just qa` flow (1k personas indexed into
-Qdrant/Elasticsearch/Neo4j, fused Japanese search returning results) all pass
-locally. The lock is multi-platform by declaration (`required-environments`)
-and Windows installs CUDA torch (2.13.0+cu130, verified on RTX 4090). All work
-sits on branch `fix/windows-portability`, pushed as PR #35 at hironow's
-direction; both queued decision-queue items were resolved in-session per the
-requester's instruction, and `ci.yaml` gained a `windows-latest` unit-test
-leg.
+The full corpus is indexed and verified. PRs #35–#38 are squash-merged on
+`main`:
+
+- **#35 Windows enablement + security**: Windows 11 (Docker Desktop/WSL2) is a
+  first-class dev environment; IPv4 loopback defaults (localhost stalled
+  ~250ms/request on Windows); UTF-8 I/O; all 5 Dependabot alerts cleared
+  (transformers 5.16.1 / protobuf 7.36.0 / pygments 2.21.0); multi-platform
+  lock guarantees (`required-environments`, `exclude-newer`); CUDA torch
+  (2.13.0+cu130) on win32 via the explicit pytorch.org index; batched
+  embedding (`embed_many`) and batched Neo4j UNWIND merges; backend
+  body-level errors now raise instead of silently dropping documents;
+  `windows-latest` CI leg.
+- **#36 full-corpus prerequisites**: Neo4j uniqueness constraints ensured at
+  ingest start (unindexed MERGE is O(n²)); emulator heaps sized for 1M rows;
+  asymmetric retrieval API (`embed_query`/`embed_documents`) with per-preset
+  prefixes; **`ruri-v3-310m` adopted** per the 2026-08 benchmark
+  (multilingual-e5 truncates 22–23% of this corpus at 512 tokens).
+- **#37 execution kit**: batched Neo4j reset (`delete_all_personas`),
+  metadata persisted at reset time, `just full-index` (shard-by-shard,
+  idempotent uuid-keyed upserts = per-shard checkpoints), the benchmark
+  record in `docs/research/2026-08-27-embedding-model-comparison.md`, and
+  emulator volume-persistence notes in the README.
+- **#38 marimo catalog**: rebuilt around the real index — pipeline-checks
+  section (health + three-store count agreement + metadata), a committed
+  snapshot of real full-corpus results (`marimo/catalog_snapshot.json`),
+  and button-triggered live search using the metadata-recorded embedder.
+
+**Index state (verified 2026-08-27):** Qdrant / Elasticsearch / Neo4j all
+hold exactly **1,000,000** personas (ground truth: 1,000,000 distinct uuids,
+0 nulls); 768-dim ruri-v3-310m vectors; random spot-checks consistent across
+parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
+51 passed / 1 skipped; CI (ubuntu + windows) green; open Dependabot alerts: 0.
 
 ## In Progress
-Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
-
-1. `fix(cli)` UTF-8 index-metadata I/O (was cp932 on Japanese Windows).
-2. `test(cli)` platform-agnostic fastembed cache-dir assertion.
-3. `perf(cli)` emulator hosts default to `127.0.0.1` — Windows resolves
-   `localhost` to `::1` first and stalled ~250ms per request (measured
-   264ms → 3ms; `just qa` wall time ~8min → 41s).
-4. `fix(cli)` force UTF-8 stdout/stderr; tolerate undecodable metadata files.
-5. `chore(dev)` quote just interpolations; add `.gitattributes` (LF).
-6. `docs(readme)` Windows bash-on-PATH prerequisite.
-7. `fix(deps)` lock upgrade clearing all 5 open Dependabot alerts:
-   transformers 4.56.2→5.16.1, protobuf 6.32.1→7.36.0, pygments
-   2.19.2→2.21.0; sentence-transformers 5.7.0→6.0.0 rides along.
-8. `build(uv)` resolution policy in pyproject: `required-environments`
-   (Linux x86_64/aarch64, macOS arm64, Windows AMD64 wheel coverage
-   enforced at lock time) + `exclude-newer = "7 days"` cooldown
-   (mandated by the repo semgrep rule for any `[tool.uv]` block).
-9. `build(uv)` Windows pulls CUDA torch (2.13.0+cu130) from the explicit
-   pytorch.org index; Linux/macOS keep PyPI wheels. torch declared as a
-   direct dependency so `tool.uv.sources` applies.
-10. `feat(embeddings)` + `perf(indexer)` batch embedding: `embed_many` on
-    the Embedder protocol (all three backends) and one batched encode per
-    ingest batch. Measured: 9.7ms → 0.24ms per text on the RTX 4090.
-11. `feat(services)` + `perf(indexer)` batched Neo4j ingest: UNWIND-based
-    `merge_personas`, one transaction per batch. `just qa` overall:
-    40s → 26s; verified against the live emulator (`just integration`,
-    1000/1000 persona nodes).
-12. `fix(services)` backend response errors surfaced: Neo4j tx/commit
-    `errors` and Elasticsearch `_bulk` per-item errors (both hidden
-    behind HTTP 200) now raise RuntimeError with details. This is what
-    silently dropped 5/1000 personas in the old per-item merge path;
-    live-verified with a null-uuid merge.
-13. `feat(embeddings)` + `feat(search)` asymmetric retrieval API:
-    embed_query/embed_documents with per-preset prefixes (e5:
-    query:/passage:, Ruri: 検索クエリ:/検索文書:) and encode batch caps.
-    New recommended preset `ruri-v3-310m` (768 dims, Apache-2.0) per the
-    2026-08 model research: Ruri's tokenizer avoids the ~23% document
-    truncation multilingual-e5 suffers on this corpus. Live-verified:
-    1k reindex in 9s on the RTX 4090, eyeball relevance strong on 4/5
-    Japanese queries (the 5th lacks matching personas in the 1k sample).
+Nothing in flight.
 
 ## Next Actions
-1. After PR #35 merges: confirm the 5 Dependabot alerts auto-closed and the
-   new `windows-latest` CI leg is green (first run pays the CUDA-torch
-   download; later runs hit the uv cache).
-2. Search relevance quality bar is still undefined (intent.md open
-   question) — no benchmarks exist beyond "returns merged results".
-3. Full-corpus indexing (1M rows) remains restore-on-demand: pull the
-   remaining LFS shards, then `index --dataset datasets/.../data`.
+1. Search relevance quality bar is still undefined (intent.md open
+   question) — only eyeball checks exist. A golden-query set or
+   JMTEB-style eval over the indexed corpus would make quality regressions
+   visible.
+2. intent.md remains DRAFT: requester review and the "intended audience /
+   downstream use" open question are still unanswered.
+3. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
+   any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
+   data and does not shrink automatically.
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
-  rewrites `uv.lock`: the machine-local `~/.config/uv/uv.toml` (harden_env.sh)
-  sets a flatt-mirror default index and `exclude-newer`. Lock operations meant
-  for commit were run with `UV_NO_CONFIG=1` so the committed lock stays
-  pypi.org-portable — note this bypasses the machine's package firewall for
-  those resolutions.
+  rewrites `uv.lock` (machine-local `~/.config/uv/uv.toml` sets a
+  flatt-mirror index + `exclude-newer`). All justfile recipes now pass
+  `--frozen`; keep new uv invocations frozen too, and use `UV_NO_CONFIG=1`
+  for lock changes meant to be committed.
 - Emulators must be running (`cd emulator && docker compose up -d`); Docker
-  Desktop's engine needs to be started first on Windows.
-- The dataset submodule is checked out with LFS pointers only, except
-  `data/train-00000-of-00008.parquet` (216MB pulled). The current
-  `qa_samples/qa_sample.parquet` was cut from that shard directly;
-  `scripts/generate_qa_sample.py` itself still requires the HF cache
-  (`download-dataset`, full corpus).
+  Desktop's engine needs to be started first on Windows. Volumes persist
+  across stop/down/reboot — only `down -v`, volume prune, or a Docker
+  Desktop purge destroy them (see README "Emulator Data Persistence").
+- `scripts/generate_qa_sample.py` still requires the HF cache
+  (`download-dataset`); the current `qa_samples/qa_sample.parquet` was cut
+  directly from shard 0 of the submodule (all 8 LFS shards are pulled,
+  ~1.7GB).
 
 ## Context the Next Actor Needs
 - Emulators are vendored at `emulator/compose.yaml`; ports/auth match
   `ApplicationConfig`. The canonical full kit lives at `~/dotfiles/emulator`
   (upstream `github.com/hironow/emulator-set`).
-- The repo runs QA-sample-only day to day; full-corpus `index` needs the
-  submodule's LFS blobs (`git -C datasets/Nemotron-Personas-Japan lfs pull`,
-  ~1.7GB total).
+- The **full corpus is indexed and persistent** — day-to-day work does not
+  need reindexing. A full rebuild is `just full-index` (~50min on the RTX
+  4090); a failed run resumes by rerunning the failed shard only.
+- Switching embedder presets triggers a confirmed reset (dimensions change);
+  the reset deletes Neo4j personas in batched transactions and persists the
+  new metadata immediately.
 - Tooling: `uv` (Python deps), `mise` (tool versions), `just` (tasks; recipes
   run under bash — on Windows that means Git Bash on PATH).
 - Score semantics differ by backend: Qdrant cosine similarity vs. mapped
@@ -96,8 +84,10 @@ Branch `fix/windows-portability` (8 commits) awaits human review and push/PR:
 ## Relevant Files and Commands
 - `search_ja_persona/cli.py` — CLI entry point (index / search /
   download-dataset / clear-emulators)
-- `emulator/compose.yaml` — standalone local emulator stack
-- `docs/architecture.md` — system architecture; `docs/adr/0001` — emulator
-  vendoring decision; `docs/decision-queue.md` — items needing human decisions
-- `just qa` — index + search the 1k sample; `just test` / `just integration`
-- `just notebook` — marimo feature-catalog notebook (`marimo/catalog.py`)
+- `docs/research/2026-08-27-embedding-model-comparison.md` — why
+  ruri-v3-310m; measured throughput/tokenizer/quality data
+- `docs/architecture.md` — system architecture (embedder presets + prefixes)
+- `just full-index` — shard-by-shard full-corpus ingest
+- `just qa` — 1k smoke (mini-lm); `just test` / `just integration`
+- `just notebook` — marimo catalog (`marimo/catalog.py` +
+  `marimo/catalog_snapshot.json`)
