@@ -11,3 +11,6 @@ qa_samples/
 
 # generated notebook exports (from `just notebook-export`)
 marimo/*.html
+
+# persona-panel JSONL outputs (from `just panel`)
+outputs/

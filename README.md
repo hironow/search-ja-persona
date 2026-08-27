@@ -192,6 +192,7 @@ The project uses [just](https://just.systems) for task automation:
 | `just qa-search query="..."` | Search QA sample |
 | `just qa` | Run qa-index + qa-search |
 | `just full-index` | Index the full corpus shard by shard (ruri-v3-310m) |
+| `just panel` | Persona-panel notebook: top-M personas answer a text/image input via local Ollama, JSONL output |
 
 ## Troubleshooting Checklist
 
