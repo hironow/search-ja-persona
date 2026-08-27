@@ -209,7 +209,7 @@ def test_build_report_preserves_bar_metric_and_tier_rows() -> None:
         elapsed_seconds=1.26,
     )
 
-    assert report["report_schema_version"] == 2
+    assert report["report_schema_version"] == 3
     assert report["golden_mean_precision"] == pytest.approx(0.75)
     assert report["golden_overall_mean_precision"] == pytest.approx(0.5833)
     assert report["golden_mean_precision_by_tier"] == {"basic": 0.75, "hard": 0.25}
@@ -240,3 +240,83 @@ def test_shipped_golden_queries_are_valid() -> None:
     tiers = {entry["tier"] for entry in entries}
     assert tiers == {"basic", "hard"}
     assert len(entries) >= 24
+
+
+def test_load_golden_queries_accepts_prefecture_filter(tmp_path: Path) -> None:
+    filtered_entry = _golden_entry(
+        query="q-hard", tier="hard", expect={"prefecture": "北海道"}
+    )
+    filtered_entry["filters"] = {"prefecture": "北海道"}
+    path = _write_golden(tmp_path, [_golden_entry(), filtered_entry])
+
+    entries = load_golden_queries(path)
+
+    assert entries[1]["filters"] == {"prefecture": "北海道"}
+
+
+@pytest.mark.parametrize(
+    ("filters", "message"),
+    [
+        ({}, "empty filters"),
+        ({"region": "関東地方"}, "unknown filters key"),
+        ({"prefecture": "沖縄"}, "unknown prefecture"),
+        ({"prefecture": ""}, "unknown prefecture"),
+    ],
+)
+def test_load_golden_queries_rejects_invalid_filters(
+    tmp_path: Path, filters: dict, message: str
+) -> None:
+    bad_entry = _golden_entry(query="q-hard", tier="hard")
+    bad_entry["filters"] = filters
+    path = _write_golden(tmp_path, [_golden_entry(), bad_entry])
+
+    with pytest.raises(ValueError, match=message):
+        load_golden_queries(path)
+
+
+def test_build_report_v3_includes_filtered_section() -> None:
+    rows = [
+        {"query": "a", "tier": "basic", "precision_at_k": 1.0},
+        {"query": "b", "tier": "hard", "precision_at_k": 0.4},
+    ]
+    filtered = [
+        {
+            "query": "b",
+            "tier": "hard",
+            "filters": {"prefecture": "沖縄県"},
+            "unfiltered_precision_at_k": 0.4,
+            "filtered_precision_at_k": 0.8,
+            "delta": 0.4,
+        }
+    ]
+
+    report = build_report(
+        per_query=rows,
+        filtered=filtered,
+        self_retrieval={"samples": 1, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        embedder="ruri-v3-310m",
+        k=5,
+        generated_at="2026-08-27T00:00:00+00:00",
+        elapsed_seconds=1.0,
+    )
+
+    assert report["report_schema_version"] == 3
+    assert report["filtered"] == filtered
+    assert report["filtered_mean_precision"] == 0.8
+    assert report["golden_mean_precision_by_tier"]["hard"] == 0.4
+
+
+def test_build_report_defaults_to_empty_filtered_section() -> None:
+    rows = [{"query": "a", "tier": "basic", "precision_at_k": 1.0}]
+
+    report = build_report(
+        per_query=rows,
+        self_retrieval={"samples": 1, "recall_at_1": 1.0, "recall_at_10": 1.0},
+        embedder="ruri-v3-310m",
+        k=5,
+        generated_at="2026-08-27T00:00:00+00:00",
+        elapsed_seconds=1.0,
+    )
+
+    assert report["filtered"] == []
+    assert report["filtered_mean_precision"] is None
