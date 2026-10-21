@@ -36,6 +36,10 @@ dev = [
 # Wait out newly published releases before resolving them (supply-chain
 # cooldown; matches the machine-level hardening policy).
 exclude-newer = "7 days"
+# Security exception for certifi 2026.10.19 (uploaded 2026-10-20): keep the
+# seven-day cooldown for every other package. Remove this dated exception
+# after 2026-10-27T02:25:00Z, then regenerate and check uv.lock.
+exclude-newer-package = { certifi = "2026-10-21T00:00:00Z" }
 # Fail at lock time (not at a teammate's install time) if an upgrade picks a
 # version without wheels for any platform we support.
 required-environments = [
