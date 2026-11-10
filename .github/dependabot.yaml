@@ -16,27 +16,37 @@
 #
 # NOTE: filename uses `.yaml` per this repo's YAML convention. Reviewer: hironow.
 version: 2
-updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+
+# One Dependabot pull request per week for the whole repo (owner ruling
+# 2026-09-14): every ecosystem below joins the `weekly` group, whose schedule is
+# this repo's slot on a weeknight JST (hub `just dependabot-slot <repo>`) — one CI
+# run on the runner pool per repo per week instead of one per ecosystem, and no
+# org-wide Monday burst. The per-ecosystem cooldown and labels are unchanged;
+# commit-message and open-pull-requests-limit live on the group (Dependabot
+# refuses them on the entries).
+multi-ecosystem-groups:
+  weekly:
     schedule:
       interval: "weekly"
+      day: "thursday"
+      time: "15:10"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+
+updates:
+  - package-ecosystem: "github-actions"
+    patterns: ["*"]
+    multi-ecosystem-group: "weekly"
+    directory: "/"
     cooldown:
       default-days: 7
     labels: ["dependencies", "github-actions"]
-    commit-message:
-      prefix: "ci"
-    groups:
-      github-actions:
-        patterns: ["*"]
-
   - package-ecosystem: "uv"
+    patterns: ["*"]
+    multi-ecosystem-group: "weekly"
     directory: "/"
-    schedule:
-      interval: "weekly"
     cooldown:
       default-days: 7
     labels: ["dependencies", "python"]
-    commit-message:
-      prefix: "chore"
-      include: "scope"
