@@ -223,8 +223,14 @@ by about ten documents.
 
 Companion harnesses: `just diagnose` scores every golden predicate against
 fused / vector-only / keyword-only / random rankings (discriminative-power
-check), and `just eval-names` tracks exact full-name lookup on a fixed
-40-name fixture. Golden data lives in `scripts/golden_queries.json`
+check), and `just eval-names` tracks exact lookup on a fixed 40-entry
+fixture: full names for japan (`scripts/name_lookup_queries.json`) and
+finance (`name_lookup_queries.finance.json`, names that occur once among
+the corpus's detected names, 5 per shard), and PII values that occur in one
+document's text only for pii (`value_lookup_queries.pii.json`, 5 per
+domain). `just profile=<finance|pii> lookup-fixture` rebuilds a fixture
+(seed-fixed). Golden data lives in `scripts/golden_queries.json`,
+`golden_queries.finance.json`, and `golden_queries.pii.json`
 (runtime-validated); measurement history lives in `docs/research/`.
 
 ## Metadata Persistence

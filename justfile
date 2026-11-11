@@ -83,6 +83,11 @@ eval *flags:
 eval-names:
     uv run --frozen python -m scripts.evaluate_name_lookup --dataset-profile "{{profile}}"
 
+# Rebuild the seed-fixed 40-entry lookup fixture for finance (corpus-unique
+# names, 5 per shard) or pii (single-document PII values, 5 per domain)
+lookup-fixture:
+    uv run --frozen python -m scripts.build_lookup_fixture --dataset-profile "{{profile}}"
+
 # Golden-set diagnostic: score each predicate against fused / keyword-only /
 # random rankings to verify the eval measures retrieval, not the predicate
 diagnose:

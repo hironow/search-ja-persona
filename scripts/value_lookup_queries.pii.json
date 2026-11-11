@@ -1,0 +1,242 @@
+[
+  {
+    "value": "長野県上田市上田27番96号 第二坂山スクエアアパート329号室",
+    "label": "street_address",
+    "domain": "EC",
+    "uuid": "a4fd04af245d49d4ab721f545fd54f72"
+  },
+  {
+    "value": "CASE-ED3SN76I3KKD736QUFUR",
+    "label": "unique_id",
+    "domain": "EC",
+    "uuid": "61039cf6a0354123a0d8cb5bc6e2e12b"
+  },
+  {
+    "value": "09072900746",
+    "label": "phone_number",
+    "domain": "EC",
+    "uuid": "35ae09f6e8ef4f92821f2f2c5026759e"
+  },
+  {
+    "value": "CUST-BF34BE92",
+    "label": "customer_id",
+    "domain": "EC",
+    "uuid": "bf34be928c334521a515cd4e48e26d80"
+  },
+  {
+    "value": "0640606",
+    "label": "account_number",
+    "domain": "EC",
+    "uuid": "58e02aee13c04d369062eb737692ba28"
+  },
+  {
+    "value": "(090)0868-3150",
+    "label": "phone_number",
+    "domain": "医療",
+    "uuid": "00f9d14b35f94a61a35a9d8cdeba18a2"
+  },
+  {
+    "value": "NAX08551672",
+    "label": "medical_record_number",
+    "domain": "医療",
+    "uuid": "8f8922d4d1fd4e97b3d66683d5296de5"
+  },
+  {
+    "value": "ID9444552",
+    "label": "medical_record_number",
+    "domain": "医療",
+    "uuid": "c0eae0823faf4698ad6158774d401d9a"
+  },
+  {
+    "value": "98105437",
+    "label": "medical_record_number",
+    "domain": "医療",
+    "uuid": "105cbb15904b405c8d70eb94d874b4dd"
+  },
+  {
+    "value": "1801-583069",
+    "label": "medical_record_number",
+    "domain": "医療",
+    "uuid": "85f0c1b1a5da4fb1b8e82ddb1f82e01b"
+  },
+  {
+    "value": "090(2525)6374",
+    "label": "phone_number",
+    "domain": "教育",
+    "uuid": "f55010eba504498cb553020e50f4ce4f"
+  },
+  {
+    "value": "080(6210)9069",
+    "label": "phone_number",
+    "domain": "教育",
+    "uuid": "fda1185d2fec49a392088b8a6547c5a5"
+  },
+  {
+    "value": "080-9265-8961",
+    "label": "phone_number",
+    "domain": "教育",
+    "uuid": "0d053e9331494f1db9d06d5f6df9124f"
+  },
+  {
+    "value": "090 0903 7945",
+    "label": "phone_number",
+    "domain": "教育",
+    "uuid": "59de25ae907f4dc69261ac2f8016a455"
+  },
+  {
+    "value": "09045202434",
+    "label": "phone_number",
+    "domain": "教育",
+    "uuid": "7438e6bc67b1421682971b4f192e2cca"
+  },
+  {
+    "value": "+81-90-1684-2159",
+    "label": "phone_number",
+    "domain": "法務",
+    "uuid": "0108a0b7901e454b93a3e24995eb5c64"
+  },
+  {
+    "value": "tokushige.yamaguchi04@gmail.com",
+    "label": "email",
+    "domain": "法務",
+    "uuid": "d7f9aa14ce4b4fd793cbc192e4b9c157"
+  },
+  {
+    "value": "2cfd71107be9418488d09af7507a99c9",
+    "label": "unique_id",
+    "domain": "法務",
+    "uuid": "39e2eeb6cc11498dbb477bf1d2413eac"
+  },
+  {
+    "value": "7b5d26c53f844bd29271769613febd26",
+    "label": "unique_id",
+    "domain": "法務",
+    "uuid": "2c660c9aa97f482db5730d8b716e225c"
+  },
+  {
+    "value": "1003667",
+    "label": "account_number",
+    "domain": "法務",
+    "uuid": "7e293c06196f4c56b6085e252f5d596f"
+  },
+  {
+    "value": "090 0963 7866",
+    "label": "phone_number",
+    "domain": "行政",
+    "uuid": "f56c63593e9544a7a65a4ba4f4fbff0c"
+  },
+  {
+    "value": "8932657",
+    "label": "account_number",
+    "domain": "行政",
+    "uuid": "65ebcce59a7d4074b5b5de7ecea17c7f"
+  },
+  {
+    "value": "080(2879)0204",
+    "label": "phone_number",
+    "domain": "行政",
+    "uuid": "992cb59ad4b64176ab4273569da6ba6b"
+  },
+  {
+    "value": "090 5484 2274",
+    "label": "phone_number",
+    "domain": "行政",
+    "uuid": "e71d6e67bcbc40a3b961d3a7d1b99f2c"
+  },
+  {
+    "value": "神奈川県横浜市中区本牧町69番48号 シティ高台本町ガーデンハイム314号室",
+    "label": "street_address",
+    "domain": "行政",
+    "uuid": "04acf1b41e5041208df9992140572574"
+  },
+  {
+    "value": "stoyoda@gmail.com",
+    "label": "email",
+    "domain": "通信・IT",
+    "uuid": "5bb53957415c44a1aa172c05a41866bd"
+  },
+  {
+    "value": "masatakaezaki0808@yahoo.co.jp",
+    "label": "email",
+    "domain": "通信・IT",
+    "uuid": "171a480a96db4297ba44db3effd5a9ab"
+  },
+  {
+    "value": "ryouichisato44@gmail.com",
+    "label": "email",
+    "domain": "通信・IT",
+    "uuid": "8b908f84b6ae46c2b023bf4cee1a3108"
+  },
+  {
+    "value": "towakonishikawa",
+    "label": "user_name",
+    "domain": "通信・IT",
+    "uuid": "d0b949afc9784b38a76b23fedd6b9ef6"
+  },
+  {
+    "value": "EMP-5FE16D11",
+    "label": "employee_id",
+    "domain": "通信・IT",
+    "uuid": "5fe16d11149648d3be9512a7ccf1da83"
+  },
+  {
+    "value": "8450842",
+    "label": "account_number",
+    "domain": "金融",
+    "uuid": "d0dc07202da44f3185d83836532cb7e0"
+  },
+  {
+    "value": "5807027",
+    "label": "account_number",
+    "domain": "金融",
+    "uuid": "e920ceb4b8bd42df89190e290a3264db"
+  },
+  {
+    "value": "6037148d392841ee9758363eab1f7b69",
+    "label": "unique_id",
+    "domain": "金融",
+    "uuid": "3e37f17fdba145a49cefab7cb1d30634"
+  },
+  {
+    "value": "兵庫県姫路市野里慶雲寺前町12番75号 ガーデン丘森スクエアビル427号室",
+    "label": "street_address",
+    "domain": "金融",
+    "uuid": "66f298d828e941f99b4b9c9707819875"
+  },
+  {
+    "value": "3185178",
+    "label": "account_number",
+    "domain": "金融",
+    "uuid": "51413b3956e14f5db32cbdfb89208a26"
+  },
+  {
+    "value": "8309440",
+    "label": "account_number",
+    "domain": "雇用",
+    "uuid": "2b02958458174cfabc071d6627e05a62"
+  },
+  {
+    "value": "1793611",
+    "label": "account_number",
+    "domain": "雇用",
+    "uuid": "45cb8035a8ee47398faad896487c4470"
+  },
+  {
+    "value": "rikuhosonuma",
+    "label": "user_name",
+    "domain": "雇用",
+    "uuid": "abe06434a28f4b02b79a3413bcaa25ef"
+  },
+  {
+    "value": "5923735",
+    "label": "account_number",
+    "domain": "雇用",
+    "uuid": "e487fd52f3bc4bc98085904e1438a10e"
+  },
+  {
+    "value": "EMP-050D952B",
+    "label": "employee_id",
+    "domain": "雇用",
+    "uuid": "050d952be1c4476d9800bc6939ee7f18"
+  }
+]
