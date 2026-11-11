@@ -139,7 +139,8 @@ def run_golden(
         )
         print(
             f"precision@{k} {filtered_score:.2f}  [{entry['tier']}/filtered "
-            f"{filters['prefecture']}]  {entry['query']}"
+            f"{' '.join(f'{key}={value}' for key, value in filters.items())}]  "
+            f"{entry['query']}"
         )
     return per_query, filtered_rows
 
