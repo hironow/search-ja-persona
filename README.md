@@ -92,17 +92,20 @@ More NVIDIA Japanese datasets (CC BY 4.0) ship as Git LFS submodules next to the
 | Submodule | Contents | Working tree |
 |-----------|----------|--------------|
 | `datasets/Nemotron-Personas-Finance-Japan` | 1,000,000 records × 50 fields in 8 parquet shards: the main corpus's persona fields plus household finance attributes (income, financial assets, financial literacy, …) and 9 persona texts per record | ~1.4 GB |
+| `datasets/Nemotron-PII-Japan` | 100,000 synthetic documents (8 domains such as medical, finance, and government) with PII span annotations, in one `data.parquet`; not personas | ~76 MB |
 
 Fetch each one by path, the same way as the main corpus:
 
 ```bash
 git submodule update --init datasets/Nemotron-Personas-Finance-Japan
 git -C datasets/Nemotron-Personas-Finance-Japan lfs pull
+git submodule update --init datasets/Nemotron-PII-Japan
+git -C datasets/Nemotron-PII-Japan lfs pull
 ```
 
 Always pass a path: a bare `git submodule update --init` checks out every dataset submodule, and the git-lfs smudge filter then downloads all of their shards.
 
-Do not pass these datasets to `search_ja_persona.cli index`. Finance has every column the indexer reads and the same shard file names as the main corpus, so it indexes without error and mixes into the `personas` collection. `just full-index` reads only `datasets/Nemotron-Personas-Japan`.
+Do not pass these datasets to `search_ja_persona.cli index`. Finance has every column the indexer reads and the same shard file names as the main corpus, so it indexes without error and mixes into the `personas` collection. PII Japan has none of those columns, and the indexer fills missing columns with nulls instead of failing. `just full-index` reads only `datasets/Nemotron-Personas-Japan`.
 
 ## Generating the QA Sample
 

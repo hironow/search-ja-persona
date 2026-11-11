@@ -4,3 +4,6 @@
 [submodule "datasets/Nemotron-Personas-Finance-Japan"]
 	path = datasets/Nemotron-Personas-Finance-Japan
 	url = https://huggingface.co/datasets/nvidia/Nemotron-Personas-Finance-Japan
+[submodule "datasets/Nemotron-PII-Japan"]
+	path = datasets/Nemotron-PII-Japan
+	url = https://huggingface.co/datasets/nvidia/Nemotron-PII-Japan

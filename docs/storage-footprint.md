@@ -75,6 +75,8 @@ The environment is CPU-only on macOS, so there is no CUDA bloat.
 | `.hf-cache/nvidia___nemotron-personas-japan` (arrow) | ~3.3 GB | `download-dataset` / QA-sample regeneration only |
 | `datasets/Nemotron-Personas-Finance-Japan/data/*.parquet` | ~1.4 GB (8 × 174 MB) | Nothing in this repo (stored, not indexed) |
 | `.git/modules/datasets/Nemotron-Personas-Finance-Japan/lfs/objects` | ~1.4 GB | Git LFS object store behind the Finance shards and card images |
+| `datasets/Nemotron-PII-Japan/data.parquet` | ~76 MB | Nothing in this repo (stored, not indexed) |
+| `.git/modules/datasets/Nemotron-PII-Japan/lfs/objects` | ~76 MB | Git LFS object store behind `data.parquet` |
 
 The dataset is effectively stored **three times**: as compressed parquet shards
 under `datasets/`, as the identical Git LFS objects under `.git/modules/`
@@ -148,6 +150,7 @@ This keeps the total end-to-end footprint (beyond the existing venv) to roughly
 | `rm -rf .hf-cache` | ~3.3 GB | Parquet shards under `datasets/` are present (indexing does not use the arrow cache) |
 | `git submodule deinit -f datasets/Nemotron-Personas-Japan`, then `rm -rf .git/modules/datasets/Nemotron-Personas-Japan/lfs/objects` | ~3.2 GB (shards + LFS objects) | Running the QA path only; restore with `git submodule update --init` + `git lfs pull` (see the README) |
 | `git submodule deinit -f datasets/Nemotron-Personas-Finance-Japan`, then `rm -rf .git/modules/datasets/Nemotron-Personas-Finance-Japan/lfs/objects` | ~2.8 GB | Anytime; nothing in this repo reads it |
+| `git submodule deinit -f datasets/Nemotron-PII-Japan`, then `rm -rf .git/modules/datasets/Nemotron-PII-Japan/lfs/objects` | ~150 MB | Anytime; nothing in this repo reads it |
 | `uv cache prune` (or `rm -rf .uv-cache`) | ~55 MB | Anytime; repopulated on next `uv` run |
 | `docker image prune` / drop emulator volumes | up to ~12 GB | Between runs; re-index to rebuild |
 
