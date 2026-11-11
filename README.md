@@ -85,6 +85,25 @@ The full corpus ships as a Git LFS submodule; the 1k QA sample is generated loca
 
 3. **QA sample.** `qa_samples/qa_sample.parquet` (1k rows) is **not checked in** (it is git-ignored). Generate it for quick QA flows with `just qa-sample` once the dataset from step 1 or 2 is available — see [Generating the QA Sample](#generating-the-qa-sample).
 
+### Related datasets (stored, not indexed)
+
+More NVIDIA Japanese datasets (CC BY 4.0) ship as Git LFS submodules next to the main corpus. No code in this repo reads them.
+
+| Submodule | Contents | Working tree |
+|-----------|----------|--------------|
+| `datasets/Nemotron-Personas-Finance-Japan` | 1,000,000 records × 50 fields in 8 parquet shards: the main corpus's persona fields plus household finance attributes (income, financial assets, financial literacy, …) and 9 persona texts per record | ~1.4 GB |
+
+Fetch each one by path, the same way as the main corpus:
+
+```bash
+git submodule update --init datasets/Nemotron-Personas-Finance-Japan
+git -C datasets/Nemotron-Personas-Finance-Japan lfs pull
+```
+
+Always pass a path: a bare `git submodule update --init` checks out every dataset submodule, and the git-lfs smudge filter then downloads all of their shards.
+
+Do not pass these datasets to `search_ja_persona.cli index`. Finance has every column the indexer reads and the same shard file names as the main corpus, so it indexes without error and mixes into the `personas` collection. `just full-index` reads only `datasets/Nemotron-Personas-Japan`.
+
 ## Generating the QA Sample
 
 The QA flows read `qa_samples/qa_sample.parquet`, which is **git-ignored and not
