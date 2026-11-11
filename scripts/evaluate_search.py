@@ -98,9 +98,7 @@ def run_golden(
         filters = entry.get("filters")
         if filters is None:
             continue
-        filtered_results = app.search(
-            entry["query"], limit=k, prefecture=filters["prefecture"]
-        )
+        filtered_results = app.search(entry["query"], limit=k, filters=filters)
         filtered_score = precision_at_k(filtered_results, entry["expect"], k=k)
         filtered_rows.append(
             {
@@ -131,23 +129,13 @@ def collect_store_counts(app: PersonaApplication) -> dict[str, int] | None:
         elasticsearch = app.elasticsearch.transport.request(
             RequestDescriptor(method="GET", path=f"/{app.elasticsearch.index}/_count")
         )
-        neo4j = app.neo4j.transport.request(
-            RequestDescriptor(
-                method="POST",
-                path="/db/neo4j/tx/commit",
-                body={
-                    "statements": [{"statement": "MATCH (p:Persona) RETURN count(p)"}]
-                },
-            )
-        )
+        neo4j = app.neo4j.count_nodes()
     except RuntimeError:
         return None
     return {
         "qdrant": int(qdrant.get("result", {}).get("points_count", 0)),
         "elasticsearch": int(elasticsearch.get("count", 0)),
-        "neo4j": int(
-            neo4j.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
-        ),
+        "neo4j": neo4j,
     }
 
 

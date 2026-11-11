@@ -40,7 +40,7 @@ class FakeQdrant:
     def ensure_collection(self) -> None:
         pass
 
-    def ensure_payload_index(self) -> None:
+    def ensure_payload_index(self, field_name: str = "prefecture") -> None:
         self.payload_index_ensured += 1
 
     def upsert_points(self, points) -> None:

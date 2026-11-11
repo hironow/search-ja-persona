@@ -10,8 +10,9 @@ class FakeApp:
         self.calls: list[tuple[str, str | None]] = []
 
     def search(
-        self, query: str, *, limit: int, prefecture: str | None = None
+        self, query: str, *, limit: int, filters: dict[str, str] | None = None
     ) -> list[dict[str, Any]]:
+        prefecture = (filters or {}).get("prefecture")
         self.calls.append((query, prefecture))
         if prefecture is not None:
             return [{"text": "", "prefecture": prefecture, "region": ""}]
@@ -61,7 +62,7 @@ def test_run_golden_without_filters_returns_empty_filtered_list() -> None:
 def test_run_golden_rows_carry_canary_fields() -> None:
     class CanaryApp:
         def search(
-            self, query: str, *, limit: int, prefecture: str | None = None
+            self, query: str, *, limit: int, filters: dict[str, str] | None = None
         ) -> list[dict]:
             return [
                 {

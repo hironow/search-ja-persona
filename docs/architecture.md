@@ -67,6 +67,7 @@ Legend:
 | `datasets.py` | HuggingFace dataset download helpers |
 | `manifest.py` | Parquet file manifest utilities |
 | `persona_fields.py` | Persona text field definitions |
+| `dataset_profiles.py` | Per-dataset settings: columns, text and payload fields, filters, and the dataset's own Qdrant collection, Elasticsearch index, Neo4j label, and metadata file |
 
 ## Embedder System
 

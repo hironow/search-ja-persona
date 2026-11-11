@@ -7,26 +7,19 @@ from pathlib import Path
 import pandas as pd
 from pyarrow.lib import ArrowInvalid
 
+from .dataset_profiles import JAPAN, DatasetProfile
+
 
 @dataclass
 class PersonaRepository:
     """Stream persona records from parquet shards."""
 
     parquet_paths: Iterable[Path]
-    columns: tuple[str, ...] = (
-        "uuid",
-        "professional_persona",
-        "sports_persona",
-        "arts_persona",
-        "travel_persona",
-        "culinary_persona",
-        "persona",
-        "prefecture",
-        "region",
-        "occupation",
-        "age",
-        "sex",
-    )
+    profile: DatasetProfile = JAPAN
+
+    @property
+    def columns(self) -> tuple[str, ...]:
+        return self.profile.columns
 
     def __post_init__(self) -> None:
         self._paths = [Path(path) for path in self.parquet_paths]

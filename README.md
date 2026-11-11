@@ -42,6 +42,7 @@ Results are ordered by `rrf_score` (the fusion score); `sources` lists which leg
 | `search_ja_persona/datasets.py` | HuggingFace dataset download helpers |
 | `search_ja_persona/manifest.py` | Parquet file manifest utilities |
 | `search_ja_persona/persona_fields.py` | Persona text field definitions (6 fields) |
+| `search_ja_persona/dataset_profiles.py` | Per-dataset settings and each dataset's own stores (collection, index, Neo4j label, metadata file) |
 | `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
 | `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
 | `scripts/golden_queries.json` | Tiered golden queries (basic/hard, machine-checkable predicates) |

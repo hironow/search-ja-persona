@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
 
-from .persona_fields import PERSONA_TEXT_FIELDS
+from .dataset_profiles import JAPAN, RESIDENCE_GRAPH, DatasetProfile
 
 
 @dataclass
@@ -139,8 +139,8 @@ class QdrantService:
                 return {"status": "exists"}
             raise
 
-    def ensure_payload_index(self) -> dict[str, Any]:
-        """Idempotently create the keyword payload index on ``prefecture``.
+    def ensure_payload_index(self, field_name: str = "prefecture") -> dict[str, Any]:
+        """Idempotently create a keyword payload index on ``field_name``.
 
         Filtered vector search needs a payload index to stay HNSW-aware.
         The current schema is checked first so an incompatible existing
@@ -151,12 +151,12 @@ class QdrantService:
             RequestDescriptor(method="GET", path=f"/collections/{self.collection}")
         )
         schema = info.get("result", {}).get("payload_schema", {})
-        existing = schema.get("prefecture")
+        existing = schema.get(field_name)
         if existing is not None:
             data_type = existing.get("data_type")
             if data_type != "keyword":
                 raise RuntimeError(
-                    f"prefecture payload index has type {data_type!r}, "
+                    f"{field_name} payload index has type {data_type!r}, "
                     "expected 'keyword'"
                 )
             return {"status": "exists"}
@@ -164,7 +164,7 @@ class QdrantService:
             RequestDescriptor(
                 method="PUT",
                 path=f"/collections/{self.collection}/index?wait=true",
-                body={"field_name": "prefecture", "field_schema": "keyword"},
+                body={"field_name": field_name, "field_schema": "keyword"},
             )
         )
 
@@ -183,7 +183,7 @@ class QdrantService:
         *,
         limit: int = 5,
         score_threshold: float | None = None,
-        prefecture: str | None = None,
+        filters: Mapping[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         payload: dict[str, Any] = {
             "vector": vector,
@@ -192,9 +192,12 @@ class QdrantService:
         }
         if score_threshold is not None:
             payload["score_threshold"] = score_threshold
-        if prefecture is not None:
+        if filters:
             payload["filter"] = {
-                "must": [{"key": "prefecture", "match": {"value": prefecture}}]
+                "must": [
+                    {"key": key, "match": {"value": value}}
+                    for key, value in filters.items()
+                ]
             }
         request = RequestDescriptor(
             method="POST",
@@ -212,26 +215,25 @@ class ElasticsearchService:
         host: str,
         port: int,
         index: str,
+        profile: DatasetProfile = JAPAN,
         transport: SimpleHttpTransport | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.index = index
+        self.profile = profile
         self.transport = transport or SimpleHttpTransport(host, port)
 
     def ensure_index(self) -> dict[str, Any]:
-        body = {
-            "mappings": {
-                "properties": {
-                    "uuid": {"type": "keyword"},
-                    "text": {"type": "text"},
-                    "prefecture": {"type": "keyword"},
-                    "region": {"type": "keyword"},
-                }
-            }
+        properties: dict[str, dict[str, str]] = {
+            "uuid": {"type": "keyword"},
+            "text": {"type": "text"},
         }
-        persona_props = {field: {"type": "text"} for field in PERSONA_TEXT_FIELDS}
-        body["mappings"]["properties"].update(persona_props)
+        for field in self.profile.payload_fields:
+            properties[field] = {"type": "keyword"}
+        for field in self.profile.text_fields:
+            properties[field] = {"type": "text"}
+        body = {"mappings": {"properties": properties}}
         request = RequestDescriptor(
             method="PUT",
             path=f"/{self.index}",
@@ -287,19 +289,25 @@ class ElasticsearchService:
         return response
 
     def search(
-        self, query: str, *, limit: int = 5, prefecture: str | None = None
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        filters: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         match_query: dict[str, Any] = {
             "multi_match": {
                 "query": query,
-                "fields": ["text", "prefecture^0.5", "region^0.25"],
+                "fields": ["text", *self.profile.keyword_boosts],
             }
         }
-        if prefecture is not None:
+        if filters:
             search_query: dict[str, Any] = {
                 "bool": {
                     "must": [match_query],
-                    "filter": [{"term": {"prefecture": prefecture}}],
+                    "filter": [
+                        {"term": {key: value}} for key, value in filters.items()
+                    ],
                 }
             }
         else:
@@ -321,22 +329,44 @@ class Neo4jService:
         port: int,
         user: str = "neo4j",
         password: str = "password",
+        profile: DatasetProfile = JAPAN,
         transport: SimpleHttpTransport | None = None,
     ) -> None:
         auth = (user, password)
+        self.profile = profile
         self.transport = transport or SimpleHttpTransport(host, port, auth=auth)
+
+    @property
+    def label(self) -> str:
+        return self.profile.node_label
 
     def ensure_constraints(self) -> dict[str, Any]:
         # Uniqueness constraints back MERGE lookups with an index; without
         # them every MERGE label-scans, which degrades to O(n^2) over a
         # full-corpus ingest.
+        # Constraint names derive from the label: IF NOT EXISTS skips a
+        # same-named constraint, so a shared name would leave a second
+        # dataset's label without its index.
         statements = [
             {
                 "statement": (
-                    "CREATE CONSTRAINT persona_uuid IF NOT EXISTS "
-                    "FOR (p:Persona) REQUIRE p.uuid IS UNIQUE"
+                    f"CREATE CONSTRAINT {self.profile.uuid_constraint_name} "
+                    f"IF NOT EXISTS FOR (p:{self.label}) REQUIRE p.uuid IS UNIQUE"
                 )
             },
+            *self._reference_constraints(),
+        ]
+        request = RequestDescriptor(
+            method="POST",
+            path="/db/neo4j/tx/commit",
+            body={"statements": statements},
+        )
+        return self._raise_on_statement_errors(self.transport.request(request))
+
+    def _reference_constraints(self) -> list[dict[str, str]]:
+        if self.profile.graph != RESIDENCE_GRAPH:
+            raise ValueError(f"Unsupported graph shape: {self.profile.graph!r}")
+        return [
             {
                 "statement": (
                     "CREATE CONSTRAINT prefecture_name IF NOT EXISTS "
@@ -350,18 +380,27 @@ class Neo4jService:
                 )
             },
         ]
+
+    def count_nodes(self) -> int:
         request = RequestDescriptor(
             method="POST",
             path="/db/neo4j/tx/commit",
-            body={"statements": statements},
+            body={
+                "statements": [{"statement": f"MATCH (p:{self.label}) RETURN count(p)"}]
+            },
         )
-        return self._raise_on_statement_errors(self.transport.request(request))
+        response = self.transport.request(request)
+        return int(
+            response.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
+        )
 
     def delete_all_personas(self, *, batch_size: int = 10_000) -> int:
         # A single-transaction DETACH DELETE over a large graph exhausts the
         # server heap; delete in LIMIT-ed rounds, one transaction per round.
+        # Only this dataset's nodes go: shared reference nodes (Prefecture,
+        # Region) stay, as do other datasets' nodes.
         statement = (
-            "MATCH (p:Persona) WITH p LIMIT $batch_size "
+            f"MATCH (p:{self.label}) WITH p LIMIT $batch_size "
             "DETACH DELETE p RETURN count(p) AS deleted"
         )
         total = 0
@@ -395,9 +434,11 @@ class Neo4jService:
             return {}
         # One UNWIND statement per batch: a transaction per persona makes the
         # HTTP round-trip the ingest bottleneck.
+        if self.profile.graph != RESIDENCE_GRAPH:
+            raise ValueError(f"Unsupported graph shape: {self.profile.graph!r}")
         statement = (
             "UNWIND $personas AS persona "
-            "MERGE (p:Persona {uuid: persona.uuid}) "
+            f"MERGE (p:{self.label} {{uuid: persona.uuid}}) "
             "SET p.text = persona.text "
             "WITH p, persona "
             "FOREACH (_ IN CASE WHEN persona.prefecture IS NOT NULL AND persona.prefecture <> '' THEN [1] ELSE [] END | "
@@ -416,7 +457,7 @@ class Neo4jService:
             "personas": [
                 {
                     "uuid": persona.get("uuid"),
-                    "text": persona.get("persona"),
+                    "text": persona.get(self.profile.summary_field),
                     "prefecture": persona.get("prefecture"),
                     "region": persona.get("region"),
                 }
@@ -445,7 +486,7 @@ class Neo4jService:
 
     def fetch_persona_context(self, uuid: str) -> dict[str, Any]:
         statement = (
-            "MATCH (p:Persona {uuid: $uuid}) "
+            f"MATCH (p:{self.label} {{uuid: $uuid}}) "
             "OPTIONAL MATCH (p)-[rel]->(target) "
             "RETURN p.uuid, coalesce(p.text, ''), coalesce(p.prefecture, ''), "
             "collect({type: type(rel), target: coalesce(target.name, target.uuid)})"

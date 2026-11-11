@@ -153,9 +153,7 @@ def main(argv: list[str] | None = None) -> None:
         filters = entry.get("filters")
         filtered_rate = None
         if filters is not None:
-            filtered_hits = app.search(
-                query, limit=args.k, prefecture=filters["prefecture"]
-            )
+            filtered_hits = app.search(query, limit=args.k, filters=filters)
             filtered_rate = precision_at_k(filtered_hits, expect, k=args.k)
         overlap = (
             len(

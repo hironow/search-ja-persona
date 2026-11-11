@@ -248,14 +248,16 @@ def test_prefecture_filtered_search_with_emulators(tmp_path: Path) -> None:
 
         query = "スキーが好きな人"
         vector = app.embedder.embed_query(query)
-        vector_hits = app.qdrant.search(vector, limit=5, prefecture="北海道")
+        vector_hits = app.qdrant.search(
+            vector, limit=5, filters={"prefecture": "北海道"}
+        )
         assert vector_hits
         assert all(
             hit.get("payload", {}).get("prefecture") == "北海道" for hit in vector_hits
         )
 
         keyword_hits = (
-            app.elasticsearch.search(query, limit=5, prefecture="北海道")
+            app.elasticsearch.search(query, limit=5, filters={"prefecture": "北海道"})
             .get("hits", {})
             .get("hits", [])
         )
@@ -264,7 +266,7 @@ def test_prefecture_filtered_search_with_emulators(tmp_path: Path) -> None:
             hit.get("_source", {}).get("prefecture") == "北海道" for hit in keyword_hits
         )
 
-        fused = app.search(query, limit=5, prefecture="北海道")
+        fused = app.search(query, limit=5, filters={"prefecture": "北海道"})
         assert fused
         assert all(hit.get("prefecture") == "北海道" for hit in fused)
     finally:
@@ -323,7 +325,7 @@ def test_rrf_fusion_with_emulators(tmp_path: Path) -> None:
         assert results[0]["uuid"] == dual_uuid
         assert results[0]["sources"] == ["vector", "keyword"]
 
-        filtered = app.search(query, limit=3, prefecture="北海道")
+        filtered = app.search(query, limit=3, filters={"prefecture": "北海道"})
         assert filtered
         assert all(hit["prefecture"] == "北海道" for hit in filtered)
     finally:

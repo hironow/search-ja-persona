@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from datasets import Dataset, DownloadConfig, load_dataset
+from search_ja_persona.dataset_profiles import JAPAN
 from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
 from search_ja_persona.repository import PersonaRepository
 
@@ -39,7 +40,7 @@ def main(limit: int = 1000) -> None:
 
     rows: list[dict] = []
     for item in dataset:
-        row = {column: item.get(column) for column in PersonaRepository.columns}
+        row = {column: item.get(column) for column in JAPAN.columns}
         for field in PERSONA_TEXT_FIELDS:
             row[field] = item.get(field)
         rows.append(row)

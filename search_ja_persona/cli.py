@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import datasets
+from .dataset_profiles import JAPAN, DatasetProfile, get_profile
 from .embeddings import (
     EMBEDDER_PRESETS,
     FastEmbedder,
@@ -18,7 +19,6 @@ from .embeddings import (
     SentenceTransformerEmbedder,
 )
 from .indexer import PersonaIndexer
-from .persona_fields import DEFAULT_PERSONA_FIELDS, PERSONA_TEXT_FIELDS
 from .prefectures import validate_prefecture
 from .repository import PersonaRepository
 from .search import PersonaSearchService
@@ -31,7 +31,6 @@ from .services import (
 
 console = Console()
 METADATA_PATH = Path(".cache/index_metadata.json")
-PERSONA_FIELD_SET = set(PERSONA_TEXT_FIELDS)
 # Update this version whenever the embedding or persona field processing logic changes
 INDEX_METADATA_SCHEMA_VERSION = "2025-03-05"
 
@@ -268,17 +267,23 @@ def _load_index_metadata() -> dict | None:
         return None
 
 
-def _parse_persona_fields(value: str) -> tuple[str, ...]:
+def _profile(args: argparse.Namespace) -> DatasetProfile:
+    return get_profile(getattr(args, "dataset_profile", JAPAN.name))
+
+
+def _parse_persona_fields(
+    value: str, profile: DatasetProfile = JAPAN
+) -> tuple[str, ...]:
     cleaned = (value or "").strip()
     if not cleaned:
         raise ValueError("Persona fields must not be empty")
     if cleaned.lower() == "all":
-        return PERSONA_TEXT_FIELDS
+        return profile.text_fields
     fields = tuple(part.strip() for part in cleaned.split(",") if part.strip())
     if not fields:
         raise ValueError("Persona fields must not be empty")
     for field in fields:
-        if field not in PERSONA_FIELD_SET:
+        if field not in profile.text_fields:
             raise ValueError(f"Unknown persona field: {field}")
     return fields
 
@@ -287,12 +292,12 @@ def _resolve_persona_fields(
     args: argparse.Namespace,
     *,
     existing_metadata: dict | None = None,
-    default: tuple[str, ...] = DEFAULT_PERSONA_FIELDS,
+    default: tuple[str, ...],
     allow_metadata_default: bool = False,
 ) -> tuple[tuple[str, ...], str | None]:
     note: str | None = None
     if getattr(args, "persona_fields", None) not in (None, ""):
-        fields = _parse_persona_fields(args.persona_fields)
+        fields = _parse_persona_fields(args.persona_fields, _profile(args))
     else:
         metadata_fields = None
         if existing_metadata:
@@ -385,21 +390,7 @@ def _collect_index_stats(
         stats["elasticsearch_docs"] = -1
 
     try:
-        response = neo4j.transport.request(
-            RequestDescriptor(
-                method="POST",
-                path="/db/neo4j/tx/commit",
-                body={
-                    "statements": [
-                        {
-                            "statement": "MATCH (p:Persona) RETURN count(p)",
-                        }
-                    ]
-                },
-            )
-        )
-        count = response.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
-        stats["neo4j_nodes"] = int(count)
+        stats["neo4j_nodes"] = neo4j.count_nodes()
     except Exception as exc:  # noqa: BLE001 - any transport error means "unknown"
         console.log(f"[yellow]Neo4j stats unavailable:[/yellow] {exc}")
         stats["neo4j_nodes"] = -1
@@ -567,13 +558,14 @@ def _run_index(args: argparse.Namespace) -> None:
     dataset_paths = _expand_paths(args.dataset)
     console.log(f"Resolved {len(dataset_paths)} dataset path(s)")
 
+    profile = _profile(args)
     existing_metadata = _load_index_metadata()
     persona_fields, _persona_note = _resolve_persona_fields(
-        args, existing_metadata=existing_metadata, default=("persona",)
+        args, existing_metadata=existing_metadata, default=(profile.summary_field,)
     )
     args._persona_fields_resolved = persona_fields
 
-    repository = PersonaRepository(dataset_paths)
+    repository = PersonaRepository(dataset_paths, profile=profile)
     embedder, embedder_info, _ = _build_embedder(args)
     embedder_info["persona_fields"] = list(persona_fields)
 
@@ -585,13 +577,14 @@ def _run_index(args: argparse.Namespace) -> None:
         distance=args.qdrant_distance,
     )
     elastic = ElasticsearchService(
-        host=args.es_host, port=args.es_port, index=args.es_index
+        host=args.es_host, port=args.es_port, index=args.es_index, profile=profile
     )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
         user=args.neo4j_user,
         password=args.neo4j_password,
+        profile=profile,
     )
 
     before_stats, _before_meta = _collect_index_stats(qdrant, elastic, neo4j)
@@ -629,6 +622,7 @@ def _run_index(args: argparse.Namespace) -> None:
         repository=repository,
         embedder=embedder,
         persona_fields=persona_fields,
+        profile=profile,
         qdrant=qdrant,
         elasticsearch=elastic,
         neo4j=neo4j,
@@ -664,6 +658,7 @@ def _is_usable_metadata(metadata: dict | None) -> bool:
 
 
 def _run_search(args: argparse.Namespace) -> None:
+    profile = _profile(args)
     existing_metadata = _load_index_metadata()
     if args.embedder is None and not _is_usable_metadata(existing_metadata):
         # The hashed default would not match an index built by any other
@@ -682,7 +677,7 @@ def _run_search(args: argparse.Namespace) -> None:
     persona_fields, persona_note = _resolve_persona_fields(
         args,
         existing_metadata=existing_metadata,
-        default=("persona",),
+        default=(profile.summary_field,),
         allow_metadata_default=True,
     )
     args._persona_fields_resolved = persona_fields
@@ -696,13 +691,14 @@ def _run_search(args: argparse.Namespace) -> None:
         distance=args.qdrant_distance,
     )
     elastic = ElasticsearchService(
-        host=args.es_host, port=args.es_port, index=args.es_index
+        host=args.es_host, port=args.es_port, index=args.es_index, profile=profile
     )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
         user=args.neo4j_user,
         password=args.neo4j_password,
+        profile=profile,
     )
 
     service = PersonaSearchService(
@@ -711,7 +707,9 @@ def _run_search(args: argparse.Namespace) -> None:
         elasticsearch=elastic,
         neo4j=neo4j,
         persona_fields=persona_fields,
+        profile=profile,
     )
+    filters = {"prefecture": args.prefecture} if args.prefecture else None
     notes = []
     if metadata_note and args.embedder is None:
         notes.append(metadata_note)
@@ -724,15 +722,13 @@ def _run_search(args: argparse.Namespace) -> None:
             args.query,
             limit=args.limit,
             return_stats=True,
-            prefecture=args.prefecture,
+            filters=filters,
         )
         console.print(
             f"[dim]Qdrant candidates: {stats['vector_hits']} | Elasticsearch hits: {stats['keyword_hits']} | Context lookups: {stats['context_calls']}[/dim]"
         )
     else:
-        results = service.search(
-            args.query, limit=args.limit, prefecture=args.prefecture
-        )
+        results = service.search(args.query, limit=args.limit, filters=filters)
         stats = None
     if args.format == "json":
         console.print_json(json.dumps(results, ensure_ascii=False))
@@ -745,8 +741,8 @@ def _run_search(args: argparse.Namespace) -> None:
     table = Table(title="Search Results", show_lines=True)
     table.add_column("UUID", overflow="fold", max_width=40)
     table.add_column("Score", justify="right")
-    table.add_column("Prefecture")
-    table.add_column("Region")
+    for field in profile.payload_fields:
+        table.add_column(field.replace("_", " ").title())
 
     include_combined = len(persona_fields) > 1
     if include_combined:
@@ -762,8 +758,7 @@ def _run_search(args: argparse.Namespace) -> None:
         row = [
             str(entry.get("uuid", "")),
             f"{entry.get('score', 0.0):.4f}",
-            entry.get("prefecture") or "",
-            entry.get("region") or "",
+            *(entry.get(field) or "" for field in profile.payload_fields),
         ]
         combined_text = (entry.get("text") or "").strip()
         if include_combined:
@@ -802,7 +797,7 @@ def _run_repair_metadata(args: argparse.Namespace) -> None:
     is taken on the operator's word.
     """
 
-    persona_fields = _parse_persona_fields(args.persona_fields)
+    persona_fields = _parse_persona_fields(args.persona_fields, _profile(args))
     embedder, embedder_info, _ = _build_embedder(args)
     embedder_info["persona_fields"] = list(persona_fields)
 
@@ -876,6 +871,7 @@ def _run_clear_emulators(args: argparse.Namespace) -> None:
         console.print("[yellow]Clear operation aborted.[/yellow]")
         return
 
+    profile = _profile(args)
     qdrant = QdrantService(
         host=args.qdrant_host,
         port=args.qdrant_port,
@@ -883,13 +879,14 @@ def _run_clear_emulators(args: argparse.Namespace) -> None:
         vector_size=1,
     )
     elastic = ElasticsearchService(
-        host=args.es_host, port=args.es_port, index=args.es_index
+        host=args.es_host, port=args.es_port, index=args.es_index, profile=profile
     )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
         user=args.neo4j_user,
         password=args.neo4j_password,
+        profile=profile,
     )
     _reset_indexes(qdrant, elastic, neo4j, args)
     console.print("[green]Local emulator stores cleared.[/green]")

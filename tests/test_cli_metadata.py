@@ -72,7 +72,7 @@ class _EmptySearchService:
         limit: int,
         *,
         return_stats: bool = False,
-        prefecture: str | None = None,
+        filters: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
         return []
 
