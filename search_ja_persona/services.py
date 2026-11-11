@@ -9,7 +9,12 @@ from typing import Any
 
 import aiohttp
 
-from .dataset_profiles import JAPAN, RESIDENCE_GRAPH, DatasetProfile
+from .dataset_profiles import (
+    JAPAN,
+    PII_DOCUMENT_GRAPH,
+    RESIDENCE_GRAPH,
+    DatasetProfile,
+)
 
 
 @dataclass
@@ -364,6 +369,20 @@ class Neo4jService:
         return self._raise_on_statement_errors(self.transport.request(request))
 
     def _reference_constraints(self) -> list[dict[str, str]]:
+        if self.profile.graph == PII_DOCUMENT_GRAPH:
+            return [
+                {
+                    "statement": (
+                        f"CREATE CONSTRAINT {name} IF NOT EXISTS "
+                        f"FOR (n:{label}) REQUIRE n.name IS UNIQUE"
+                    )
+                }
+                for name, label in (
+                    ("pii_domain_name", "PiiDomain"),
+                    ("pii_document_type_name", "PiiDocumentType"),
+                    ("pii_label_name", "PiiLabel"),
+                )
+            ]
         if self.profile.graph != RESIDENCE_GRAPH:
             raise ValueError(f"Unsupported graph shape: {self.profile.graph!r}")
         return [
@@ -432,6 +451,8 @@ class Neo4jService:
     def merge_personas(self, personas: Sequence[dict[str, Any]]) -> dict[str, Any]:
         if not personas:
             return {}
+        if self.profile.graph == PII_DOCUMENT_GRAPH:
+            return self._merge_pii_documents(personas)
         # One UNWIND statement per batch: a transaction per persona makes the
         # HTTP round-trip the ingest bottleneck.
         if self.profile.graph != RESIDENCE_GRAPH:
@@ -462,6 +483,51 @@ class Neo4jService:
                     "region": persona.get("region"),
                 }
                 for persona in personas
+            ]
+        }
+        request = RequestDescriptor(
+            method="POST",
+            path="/db/neo4j/tx/commit",
+            body={"statements": [{"statement": statement, "parameters": parameters}]},
+        )
+        return self._raise_on_statement_errors(self.transport.request(request))
+
+    def _merge_pii_documents(
+        self, documents: Sequence[dict[str, Any]]
+    ) -> dict[str, Any]:
+        statement = (
+            "UNWIND $documents AS doc "
+            f"MERGE (d:{self.label} {{uuid: doc.uuid}}) "
+            "SET d.text = doc.text "
+            "WITH d, doc "
+            "FOREACH (_ IN CASE WHEN doc.domain IS NOT NULL AND doc.domain <> '' THEN [1] ELSE [] END | "
+            "  MERGE (dom:PiiDomain {name: doc.domain}) "
+            "  MERGE (d)-[:IN_DOMAIN]->(dom) "
+            ") "
+            "WITH d, doc "
+            "FOREACH (_ IN CASE WHEN doc.document_type IS NOT NULL AND doc.document_type <> '' THEN [1] ELSE [] END | "
+            "  MERGE (t:PiiDocumentType {name: doc.document_type}) "
+            "  MERGE (d)-[:OF_TYPE]->(t) "
+            ") "
+            "WITH d, doc "
+            "FOREACH (label IN doc.pii_labels | "
+            "  MERGE (l:PiiLabel {name: label}) "
+            "  MERGE (d)-[:CONTAINS_PII]->(l) "
+            ") "
+            "RETURN count(d)"
+        )
+        parameters = {
+            "documents": [
+                {
+                    "uuid": document.get("uuid"),
+                    "text": document.get(self.profile.summary_field),
+                    "domain": document.get("domain"),
+                    "document_type": document.get("document_type"),
+                    "pii_labels": sorted(
+                        {span["label"] for span in document.get("spans") or []}
+                    ),
+                }
+                for document in documents
             ]
         }
         request = RequestDescriptor(

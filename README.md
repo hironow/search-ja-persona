@@ -101,6 +101,7 @@ Each indexed dataset has a **dataset profile** (`--dataset-profile`, default `ja
 |---------|--------|------------------------------|-------------|---------------|
 | `japan` | `datasets/Nemotron-Personas-Japan/data` | `personas` | `Persona` | `.cache/index_metadata.json` |
 | `finance` | `datasets/Nemotron-Personas-Finance-Japan/data` | `finance_personas` | `FinancePersona` | `.cache/index_metadata.finance.json` |
+| `pii` | `datasets/Nemotron-PII-Japan` (`data.parquet`) | `pii_documents` | `PiiDocument` | `.cache/index_metadata.pii.json` |
 
 A profile refuses `--qdrant-collection` / `--es-index` names that belong to another profile. A custom collection name gets its own metadata file (`.cache/index_metadata.<profile>.<collection>.json`), so clearing it keeps the default index's metadata. `Prefecture` and `Region` graph nodes are shared reference data: clearing a dataset deletes only its own nodes.
 
@@ -115,7 +116,7 @@ git -C datasets/Nemotron-PII-Japan lfs pull
 
 Always pass a path: a bare `git submodule update --init` checks out every dataset submodule, and the git-lfs smudge filter then downloads all of their shards.
 
-Before reading a parquet file, the repository detects its dataset from the source columns (`finance_persona` → `finance`, otherwise `uuid` → `japan`) and refuses a file that does not match the selected profile, or one with no known dataset's columns (PII Japan has no profile yet). Finance shards share file names with the main corpus, so `--dataset-profile finance` is required to index them.
+Before reading a parquet file, the repository detects its dataset from the source columns (`uid` + `spans` → `pii`, `finance_persona` → `finance`, otherwise `uuid` → `japan`) and refuses a file that does not match the selected profile. Finance shards share file names with the main corpus, so `--dataset-profile finance` is required to index them. pii search filters with `--domain` / `--document-type` instead of `--prefecture`. See `docs/architecture.md` (Dataset Profiles) for each profile's fields and graph.
 
 ## Generating the QA Sample
 

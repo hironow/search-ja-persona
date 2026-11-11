@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 from pyarrow.lib import ArrowInvalid
@@ -31,7 +32,11 @@ class PersonaRepository:
             self._require_profile_match(path)
             frame = self._read_frame(path)
             for record in frame.to_dict(orient="records"):
-                yield record
+                # List columns (PII spans) arrive as numpy arrays.
+                yield {
+                    key: value.tolist() if isinstance(value, np.ndarray) else value
+                    for key, value in record.items()
+                }
                 yielded += 1
                 if limit is not None and yielded >= limit:
                     return
@@ -53,14 +58,18 @@ class PersonaRepository:
             )
 
     def _read_frame(self, path: Path) -> pd.DataFrame:
+        renames = dict(self.profile.source_renames)
+        to_source = {record_key: source for source, record_key in renames.items()}
+        source_columns = [to_source.get(column, column) for column in self.columns]
         try:
-            return pd.read_parquet(path, columns=list(self.columns))
+            frame = pd.read_parquet(path, columns=source_columns)
         except (ValueError, KeyError, ArrowInvalid):
             frame = pd.read_parquet(path)
-            for column in self.columns:
+            for column in source_columns:
                 if column not in frame.columns:
                     frame[column] = None
-            return frame[list(self.columns)]
+            frame = frame[source_columns]
+        return frame.rename(columns=renames)
 
     @staticmethod
     def write_sample(path: Path, rows: list[dict]) -> None:

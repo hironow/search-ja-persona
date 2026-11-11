@@ -102,9 +102,35 @@ Available presets:
 The Ruri presets also cap the encode batch size (16 / 32) at their
 measured RTX 4090 throughput optima.
 
+## Dataset Profiles
+
+Three datasets are indexed side by side. Each has a profile
+(`search_ja_persona/dataset_profiles.py`, CLI `--dataset-profile`, default
+`japan`) that owns its stores, so indexing, searching, or clearing one never
+touches another:
+
+| Profile | Source | Text fields | Payload / filters | Stores (Qdrant = ES name) | Neo4j graph | Embedding input |
+|---------|--------|-------------|-------------------|---------------------------|-------------|-----------------|
+| `japan` | Nemotron-Personas-Japan (1M) | 6 persona fields | `prefecture`, `region` / `prefecture` | `personas` | `Persona` -LIVES_IN-> `Prefecture`, -LOCATED_IN-> `Region` | `strip-person-names-v1` |
+| `finance` | Nemotron-Personas-Finance-Japan (1M) | 3 finance personas + the 6 above | same as japan | `finance_personas` | `FinancePersona`, same relationships | `strip-person-names-v1` |
+| `pii` | Nemotron-PII-Japan (100k documents) | `document_text`, `document_description` | `domain`, `document_type` / both | `pii_documents` | `PiiDocument` -IN_DOMAIN-> `PiiDomain`, -OF_TYPE-> `PiiDocumentType`, -CONTAINS_PII-> `PiiLabel` | `raw-text-v1` |
+
+- Every record is keyed by `uuid`; the pii profile renames the source `uid`
+  to `uuid` and `text` to `document_text` (the aggregated `text` field
+  stays unambiguous). PII span labels become `PiiLabel` nodes; spans are not
+  stored in Qdrant or Elasticsearch.
+- `Prefecture` / `Region` nodes are shared reference data. Constraints are
+  named after the label (`persona_uuid`, `finance_persona_uuid`,
+  `pii_document_uuid`), and clearing a dataset deletes only its own nodes.
+- Guards: the repository detects a parquet file's dataset from its columns
+  (`uid` + `spans` → pii, `finance_persona` → finance, `uuid` → japan) and
+  refuses a mismatch; a profile refuses another profile's collection or index
+  name; metadata records its dataset, and a mismatch fails closed.
+
 ## Persona Data Model
 
-Each persona record contains:
+Each japan persona record contains (finance adds `finance_persona`,
+`financial_behavior_persona`, and `financial_concerns_persona`):
 
 | Field | Description |
 |-------|-------------|
@@ -129,9 +155,9 @@ Each persona record contains:
     "score": 0.87,  # cosine similarity (Qdrant) or ES _score
     "rrf_score": 0.0325,  # weighted RRF score used for ranking
     "sources": ["vector", "keyword"],  # which legs returned the hit
-    "text": "...",  # aggregated persona text
-    "prefecture": "...",
-    "region": "...",
+    "text": "...",  # aggregated text of the indexed fields
+    "prefecture": "...",  # the profile's payload fields
+    "region": "...",  # (pii: "domain", "document_type")
     "context": {...},  # Neo4j graph relationships
     "persona_fields": {...},  # per-field breakdown
 }
@@ -159,14 +185,18 @@ Embedding inputs exclude person names (`strip-person-names-v1`,
 given names, while stored text keeps them so BM25 name lookup and display
 are unchanged (ADR 0003).
 
-## Prefecture Filter
+## Search Filters
 
-`search --prefecture <official name>` restricts both legs to residents of
-one prefecture: a Qdrant payload filter (backed by a keyword payload index,
-created at index time; `just ensure-payload-index` backfills older
-collections) plus an Elasticsearch `term` filter. Inputs are validated
-against the official 47 names at the entry points (CLI, golden set), so a
-colloquial form like 沖縄 fails fast instead of silently matching nothing.
+Filters restrict both legs to an exact payload value: a Qdrant payload
+filter (backed by a keyword payload index per filter field, created at index
+time; `just ensure-payload-index` backfills older collections) plus an
+Elasticsearch `term` filter. Each profile accepts only its own filter flags:
+
+- japan / finance: `search --prefecture <official name>`. Inputs are
+  validated against the official 47 names at the entry points (CLI, golden
+  set), so a colloquial form like 沖縄 fails fast instead of silently
+  matching nothing.
+- pii: `search --domain <domain>` and `--document-type <type>`.
 
 ## Search-Quality Gate
 
@@ -188,13 +218,18 @@ check), and `just eval-names` tracks exact full-name lookup on a fixed
 
 ## Metadata Persistence
 
-Index metadata is cached in `.cache/index_metadata.json` (CWD-relative):
+Index metadata is cached per dataset and collection (CWD-relative):
+`.cache/index_metadata.json` (japan), `.cache/index_metadata.finance.json`,
+`.cache/index_metadata.pii.json`, and
+`.cache/index_metadata.<profile>.<collection>.json` for a custom collection.
+Each file records:
 
+- Dataset profile (`dataset`; files without it are japan)
 - Embedder preset and configuration
 - Vector dimensions
 - Persona fields used
-- Embedding text policy (`strip-person-names-v1`)
-- Collection/index names
+- Embedding text policy (the profile's)
+- Collection name
 - Schema version
 
 This enables automatic reuse of settings across `index` and `search`

@@ -137,6 +137,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Restrict results to residents of this prefecture (official name, e.g. 沖縄県)",
     )
     search_parser.add_argument(
+        "--domain",
+        default=None,
+        help="pii only: restrict results to one document domain (e.g. 金融)",
+    )
+    search_parser.add_argument(
+        "--document-type",
+        default=None,
+        help="pii only: restrict results to one document type (e.g. ローン審査書類)",
+    )
+    search_parser.add_argument(
         "--embedder",
         choices=sorted(EMBEDDER_PRESETS.keys()),
         default=None,
@@ -317,6 +327,32 @@ def _resolve_stores(args: argparse.Namespace) -> DatasetProfile:
             )
             raise SystemExit(2)
     return profile
+
+
+# Search filter flags, keyed by the payload field they filter on.
+FILTER_FLAGS: dict[str, str] = {
+    "prefecture": "--prefecture",
+    "domain": "--domain",
+    "document_type": "--document-type",
+}
+
+
+def _search_filters(
+    args: argparse.Namespace, profile: DatasetProfile
+) -> dict[str, str] | None:
+    filters: dict[str, str] = {}
+    for field, flag in FILTER_FLAGS.items():
+        value = getattr(args, field, None)
+        if value is None:
+            continue
+        if field not in profile.filter_fields:
+            console.print(
+                f"[red]Dataset profile '{profile.name}' does not support the "
+                f"{flag} filter.[/red]"
+            )
+            raise SystemExit(2)
+        filters[field] = value
+    return filters or None
 
 
 def _metadata_path(args: argparse.Namespace) -> Path:
@@ -737,6 +773,7 @@ def _is_usable_metadata(metadata: dict | None) -> bool:
 
 def _run_search(args: argparse.Namespace) -> None:
     profile = _resolve_stores(args)
+    filters = _search_filters(args, profile)
     metadata_path = _metadata_path(args)
     existing_metadata = _load_index_metadata(metadata_path)
     _refuse_foreign_metadata(existing_metadata, args)
@@ -789,7 +826,6 @@ def _run_search(args: argparse.Namespace) -> None:
         persona_fields=persona_fields,
         profile=profile,
     )
-    filters = {"prefecture": args.prefecture} if args.prefecture else None
     notes = []
     if metadata_note and args.embedder is None:
         notes.append(metadata_note)

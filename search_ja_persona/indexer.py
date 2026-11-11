@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .dataset_profiles import JAPAN, DatasetProfile
+from .dataset_profiles import JAPAN, STRIP_PERSON_NAMES, DatasetProfile
 from .embeddings import Embedder
 from .name_stripping import strip_person_names
 from .persona_fields import PERSONA_TEXT_FIELDS
@@ -51,7 +51,7 @@ class PersonaIndexer:
         # the stored text keeps them for BM25 lookup and display.
         vectors = self.embedder.embed_documents(
             [
-                "\n\n".join(text for text in strip_person_names(field_texts) if text)
+                "\n\n".join(text for text in self._embedding_texts(field_texts) if text)
                 for _, _, field_texts in composed
             ]
         )
@@ -98,6 +98,11 @@ class PersonaIndexer:
         for field in self.persona_fields:
             document[field] = per_field.get(field)
         return document
+
+    def _embedding_texts(self, field_texts: list[str]) -> list[str]:
+        if self.profile.embedding_text_policy == STRIP_PERSON_NAMES:
+            return strip_person_names(field_texts)
+        return field_texts
 
     def _compose_text(self, persona: dict) -> tuple[str, dict[str, str], list[str]]:
         per_field: dict[str, str] = {}
