@@ -176,7 +176,7 @@ uv run python -m search_ja_persona.cli index \
     --persona-fields all
 ```
 
-> Tip: `just qa-index embedder="mini-lm" persona_fields="all"` runs a similar command with `--batch-size 64`.
+> Tip: `just qa-index mini-lm all` runs a similar command with `--batch-size 64` (recipe arguments are positional; only the top-level `profile` variable takes `name=value`, as in `just profile=finance qa-index ruri-v3-310m`).
 
 ### Metadata Tracking
 
@@ -254,18 +254,23 @@ The project uses [just](https://just.systems) for task automation:
 | `just help` | List all available tasks |
 | `just format` | Format code with ruff |
 | `just lint` | Lint and auto-fix with ruff |
-| `just test` | Run pytest (excludes integration tests) |
+| `just test` | Run pytest (integration tests skip themselves unless the emulators are up) |
 | `just integration` | Run integration tests (requires emulators) |
 | `just qa-clear` | Clear emulator data |
-| `just qa-sample limit=1000` | Generate QA sample parquet |
-| `just qa-index embedder="mini-lm"` | Index QA sample |
-| `just qa-search query="..."` | Search QA sample |
+| `just qa-sample 1000` | Generate QA sample parquet (`just profile=<finance\|pii> qa-sample` for the other datasets) |
+| `just qa-index mini-lm` | Index QA sample |
+| `just qa-search "..."` | Search QA sample |
 | `just qa` | Run qa-index + qa-search |
 | `just full-index` | Index the full corpus shard by shard (ruri-v3-310m) |
 | `just check` | Aggregate local gate (prek hooks + unit tests) |
 | `just eval` | Search-quality benchmark; add `--check-thresholds` to enforce the quality bars |
 | `just diagnose` | Golden-predicate diagnostic (fused / vector / keyword / random) |
-| `just eval-names` | Name-lookup benchmark on the fixed 40-name fixture |
+| `just eval-names` | Exact-lookup benchmark on the dataset's fixed 40-entry fixture |
+| `just lookup-fixture` | Rebuild the finance / pii lookup fixture (seed-fixed) |
+| `just store-fingerprint` | Read-only fingerprint of the dataset's stores, to compare before and after other work |
+| `just catalog-snapshot` | Record the catalog snapshot from the dataset's full index |
+
+Every `qa-*`, `full-index`, `eval`, `diagnose`, `eval-names`, `lookup-fixture`, `store-fingerprint`, and `catalog-snapshot` recipe works on the dataset in the top-level `profile` variable (default `japan`): `just profile=finance eval --check-thresholds`.
 | `just ensure-payload-index` | Backfill the Qdrant prefecture payload index (idempotent) |
 | `just notebook` / `just notebook-export` | Feature-catalog marimo notebook (edit / static HTML); pick japan, finance, or pii in its dataset selector |
 | `just panel` / `just panel-app` | Persona-panel notebook (edit / read-mode app): top-M personas from japan or finance answer a text/image input via local Ollama, JSONL output (with a `dataset` field) |
