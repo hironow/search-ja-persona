@@ -5,7 +5,8 @@ golden-query precision@k and self-retrieval recall@k, then prints a
 summary and writes a JSON report under outputs/.
 
 Usage:
-    uv run --frozen python -m scripts.evaluate_search [--k 5] [--samples 100]
+    uv run --frozen python -m scripts.evaluate_search [--dataset-profile finance]
+        [--k 5] [--samples 100]
 """
 
 from __future__ import annotations
@@ -20,6 +21,12 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 from search_ja_persona.application import ApplicationConfig, PersonaApplication
+from search_ja_persona.dataset_profiles import (
+    JAPAN,
+    PROFILES,
+    DatasetProfile,
+    get_profile,
+)
 from search_ja_persona.evaluation import (
     build_report,
     check_thresholds,
@@ -30,13 +37,33 @@ from search_ja_persona.evaluation import (
 from search_ja_persona.services import RequestDescriptor
 
 GOLDEN_PATH = Path(__file__).with_name("golden_queries.json")
-SELF_RETRIEVAL_SHARD = Path(
-    "datasets/Nemotron-Personas-Japan/data/train-00000-of-00008.parquet"
-)
+# A pii document description is shared by ~10 documents, so it cannot
+# identify its own document; value lookup (just eval-names) measures that.
+SELF_RETRIEVAL_PROFILES = frozenset({"japan", "finance"})
+
+
+def golden_path(profile: DatasetProfile) -> Path:
+    if profile.name == JAPAN.name:
+        return GOLDEN_PATH
+    return GOLDEN_PATH.with_name(f"golden_queries.{profile.name}.json")
+
+
+def self_retrieval_source(profile: DatasetProfile) -> Path | None:
+    """The persona shard whose summaries query for their own persona."""
+
+    if profile.name not in SELF_RETRIEVAL_PROFILES:
+        return None
+    return Path(profile.source_dir) / "train-00000-of-00008.parquet"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate fused search quality")
+    parser.add_argument(
+        "--dataset-profile",
+        choices=sorted(PROFILES),
+        default=JAPAN.name,
+        help="Dataset whose index and golden set to evaluate",
+    )
     parser.add_argument("--embedder", default="ruri-v3-310m")
     parser.add_argument("--k", type=int, default=5, help="Cutoff for precision@k")
     parser.add_argument(
@@ -141,9 +168,10 @@ def collect_store_counts(app: PersonaApplication) -> dict[str, int] | None:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    profile = get_profile(args.dataset_profile)
     # Validate the golden set before touching any live service.
-    golden = load_golden_queries(GOLDEN_PATH)
-    config_kwargs: dict = {"embedder": args.embedder}
+    golden = load_golden_queries(golden_path(profile), profile=profile)
+    config_kwargs: dict = {"embedder": args.embedder, "dataset_profile": profile.name}
     if args.rrf_weights is not None:
         vector_weight, keyword_weight = (
             float(part) for part in args.rrf_weights.split(",")
@@ -157,21 +185,25 @@ def main(argv: list[str] | None = None) -> None:
 
     recall_1 = recall_10 = 0
     sampled = 0
-    if SELF_RETRIEVAL_SHARD.exists():
-        table = pq.read_table(SELF_RETRIEVAL_SHARD, columns=["uuid", "persona"])
+    source = self_retrieval_source(profile)
+    if source is not None and source.exists():
+        summary_field = profile.summary_field
+        table = pq.read_table(source, columns=["uuid", summary_field])
         rng = random.Random(args.seed)
         rows = rng.sample(range(table.num_rows), args.samples)
         for row in rows:
             uuid = table.column("uuid")[row].as_py()
-            summary = (table.column("persona")[row].as_py() or "").strip()
+            summary = (table.column(summary_field)[row].as_py() or "").strip()
             if not uuid or not summary:
                 continue
             ranked = [hit.get("uuid") for hit in app.search(summary, limit=10)]
             sampled += 1
             recall_1 += recall_at_k(ranked, uuid, k=1)
             recall_10 += recall_at_k(ranked, uuid, k=10)
+    elif source is None:
+        print(f"self-retrieval not applicable to the '{profile.name}' dataset")
     else:
-        print(f"self-retrieval skipped: {SELF_RETRIEVAL_SHARD} not found")
+        print(f"self-retrieval skipped: {source} not found")
 
     elapsed = time.perf_counter() - started
     report = build_report(
@@ -189,6 +221,7 @@ def main(argv: list[str] | None = None) -> None:
         fusion={"rrf_weights": list(config.rrf_weights)},
         store_counts=collect_store_counts(app),
     )
+    report = {"dataset": profile.name, **report}
 
     by_tier = report["golden_mean_precision_by_tier"]
     tier_summary = " | ".join(f"{tier} {value:.3f}" for tier, value in by_tier.items())
@@ -213,22 +246,28 @@ def main(argv: list[str] | None = None) -> None:
     out_dir = Path("outputs")
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    out_path = out_dir / f"search_eval-{stamp}.json"
+    out_path = out_dir / f"search_eval-{profile.name}-{stamp}.json"
     out_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"wrote {out_path}")
 
     if args.check_thresholds:
-        failures = check_thresholds(report)
+        failures = check_thresholds(report, profile=profile)
         if failures:
             for failure in failures:
                 print(f"THRESHOLD FAIL: {failure}")
             raise SystemExit(1)
-        print(
-            "thresholds OK (basic >= 0.85, hard >= 0.55, filtered >= 0.90, "
-            "recall@1 >= 0.90, recall@10 >= 0.99)"
-        )
+        if profile.name == JAPAN.name:
+            print(
+                "thresholds OK (basic >= 0.85, hard >= 0.55, filtered >= 0.90, "
+                "recall@1 >= 0.90, recall@10 >= 0.99)"
+            )
+        else:
+            print(
+                f"canaries OK; quality bars for '{profile.name}' are not "
+                "ratified yet (report only)"
+            )
 
 
 if __name__ == "__main__":

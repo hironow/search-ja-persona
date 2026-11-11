@@ -245,7 +245,9 @@ def test_shipped_golden_queries_are_valid() -> None:
 
 def test_load_golden_queries_accepts_prefecture_filter(tmp_path: Path) -> None:
     filtered_entry = _golden_entry(
-        query="q-hard", tier="hard", expect={"prefecture": "北海道"}
+        query="q-hard",
+        tier="hard",
+        expect={"prefecture": "北海道", "text_any": ["スキー"]},
     )
     filtered_entry["filters"] = {"prefecture": "北海道"}
     path = _write_golden(tmp_path, [_golden_entry(), filtered_entry])

@@ -76,17 +76,17 @@ qa: qa-index qa-search
 # recall@k against the live index (report lands in outputs/). Extra flags
 # pass through, e.g. `just eval --check-thresholds --rrf-weights 2,1`
 eval *flags:
-    uv run --frozen python -m scripts.evaluate_search {{flags}}
+    uv run --frozen python -m scripts.evaluate_search {{flags}} --dataset-profile "{{profile}}"
 
 # Name-lookup benchmark: exact full-name queries on a fixed 40-name set
 # (the keyword leg owes this since embeddings exclude names)
 eval-names:
-    uv run --frozen python -m scripts.evaluate_name_lookup
+    uv run --frozen python -m scripts.evaluate_name_lookup --dataset-profile "{{profile}}"
 
 # Golden-set diagnostic: score each predicate against fused / keyword-only /
 # random rankings to verify the eval measures retrieval, not the predicate
 diagnose:
-    uv run --frozen python -m scripts.diagnose_golden
+    uv run --frozen python -m scripts.diagnose_golden --dataset-profile "{{profile}}"
 
 # One-off migration: create the prefecture keyword payload index on an
 # existing Qdrant collection (idempotent; new collections get it at index time)

@@ -202,13 +202,24 @@ Elasticsearch `term` filter. Each profile accepts only its own filter flags:
 
 `just eval --check-thresholds` runs the golden benchmark against the live
 index and exits non-zero when a ratified bar or a required metric is
-missing or unmet (`search_ja_persona/evaluation.py:check_thresholds`):
+missing or unmet (`search_ja_persona/evaluation.py:check_thresholds`).
+`just profile=<name> eval` evaluates another dataset against its own golden
+set (`--dataset-profile`); every report records its `dataset`.
 
-- golden mean precision@5, basic tier >= 0.85 / hard tier >= 0.55
-- filtered geo mean >= 0.90
-- self-retrieval recall@1 >= 0.90 and recall@10 >= 0.99
-- silent-death canaries: 3-store count agreement, graph-context
-  coverage >= 0.99, keyword-leg contribution > 0
+- japan only (ratified): golden mean precision@5, basic tier >= 0.85 /
+  hard tier >= 0.55; filtered geo mean >= 0.90; self-retrieval
+  recall@1 >= 0.90 and recall@10 >= 0.99
+- every dataset: silent-death canaries — 3-store count agreement,
+  graph-context coverage >= 0.99, keyword-leg contribution > 0. finance
+  and pii report their quality metrics without a bar until the requester
+  ratifies one.
+
+Golden expectations may use `text_any` / `text_all` plus the profile's
+payload fields, filters only the profile's filter fields, and a filtered
+entry must expect something beyond its filter (otherwise it scores 1.0 by
+construction). Self-retrieval queries a persona's `persona` summary for
+japan and finance; pii skips it because one document description is shared
+by about ten documents.
 
 Companion harnesses: `just diagnose` scores every golden predicate against
 fused / vector-only / keyword-only / random rankings (discriminative-power

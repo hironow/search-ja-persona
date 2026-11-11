@@ -3,8 +3,9 @@
 Two complementary measurements, both machine-checkable (no LLM judge):
 
 - Golden queries: each query carries an expectation over the result's
-  text/prefecture/region; precision@k counts how many of the top k satisfy
-  every criterion.
+  text and the dataset profile's payload fields (japan/finance: prefecture,
+  region; pii: domain, document_type); precision@k counts how many of the
+  top k satisfy every criterion.
 - Self-retrieval: a persona's own summary text is issued as the query and
   recall@k checks whether that persona comes back in the top k.
 """
@@ -17,11 +18,11 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
+from .dataset_profiles import JAPAN, DatasetProfile
 from .prefectures import validate_prefecture
 
-_EXPECT_KEYS = frozenset({"text_any", "text_all", "prefecture", "region"})
+_TEXT_KEYS = frozenset({"text_any", "text_all"})
 _ENTRY_KEYS = frozenset({"query", "expect", "tier", "filters"})
-_FILTER_KEYS = frozenset({"prefecture"})
 _TIERS = frozenset({"basic", "hard"})
 
 
@@ -38,10 +39,10 @@ def _require_keywords(keywords: Sequence[object], label: str) -> None:
             raise ValueError(f"{label}: empty keyword")
 
 
-def _validate_expect(expect: object, label: str) -> None:
+def _validate_expect(expect: object, label: str, profile: DatasetProfile) -> None:
     if not isinstance(expect, dict) or not expect:
         raise ValueError(f"{label}: empty expect")
-    unknown = set(expect) - _EXPECT_KEYS
+    unknown = set(expect) - _TEXT_KEYS - set(profile.payload_fields)
     if unknown:
         raise ValueError(f"{label}: unknown expect key {sorted(unknown)}")
 
@@ -63,22 +64,36 @@ def _validate_expect(expect: object, label: str) -> None:
             else:
                 _require_keywords(group, label)
 
-    for field in ("prefecture", "region"):
+    for field in profile.payload_fields:
         wanted = expect.get(field)
         if wanted is not None and (not isinstance(wanted, str) or not wanted):
             raise ValueError(f"{label}: empty {field}")
 
 
-def _validate_filters(filters: object, label: str) -> None:
+def _validate_filters(
+    filters: object, expect: dict[str, Any], label: str, profile: DatasetProfile
+) -> None:
     if not isinstance(filters, dict) or not filters:
         raise ValueError(f"{label}: empty filters")
-    unknown = set(filters) - _FILTER_KEYS
+    unknown = set(filters) - set(profile.filter_fields)
     if unknown:
         raise ValueError(f"{label}: unknown filters key {sorted(unknown)}")
-    validate_prefecture(str(filters["prefecture"]))
+    for field, value in filters.items():
+        if field == "prefecture":
+            validate_prefecture(str(value))
+        elif not isinstance(value, str) or not value:
+            raise ValueError(f"{label}: empty {field} filter")
+    # Under the filter, an expectation that only restates it scores 1.0
+    # whatever the ranking does.
+    if not set(expect) - set(filters):
+        raise ValueError(
+            f"{label}: a filtered entry needs a criterion beyond its filters"
+        )
 
 
-def load_golden_queries(path: str | Path) -> list[dict[str, Any]]:
+def load_golden_queries(
+    path: str | Path, *, profile: DatasetProfile = JAPAN
+) -> list[dict[str, Any]]:
     """Load and validate the golden-query set, failing fast on bad data.
 
     ``matches_expectation`` silently ignores unknown criteria, so a typo in
@@ -112,9 +127,9 @@ def load_golden_queries(path: str | Path) -> list[dict[str, Any]]:
         if tier not in _TIERS:
             raise ValueError(f"{label}: unknown tier {tier!r}")
         seen_tiers.add(tier)
-        _validate_expect(entry.get("expect"), label)
+        _validate_expect(entry.get("expect"), label, profile)
         if "filters" in entry:
-            _validate_filters(entry["filters"], label)
+            _validate_filters(entry["filters"], entry["expect"], label, profile)
 
     for tier in sorted(_TIERS):
         if tier not in seen_tiers:
@@ -128,7 +143,8 @@ def matches_expectation(result: dict[str, Any], expect: dict[str, Any]) -> bool:
     Supported criteria: ``text_any`` (at least one keyword appears in the
     aggregated text), ``text_all`` (every group is satisfied, where a group
     is a required keyword or a synonym list of which one must appear), and
-    ``prefecture`` / ``region`` (exact match).
+    any other key as an exact match on that result field (the profile's
+    payload fields; ``load_golden_queries`` rejects anything else).
     """
 
     keywords = expect.get("text_any")
@@ -145,9 +161,8 @@ def matches_expectation(result: dict[str, Any], expect: dict[str, Any]) -> bool:
             if not any(term in text for term in terms):
                 return False
 
-    for field in ("prefecture", "region"):
-        wanted = expect.get(field)
-        if wanted is not None and result.get(field) != wanted:
+    for field, wanted in expect.items():
+        if field not in _TEXT_KEYS and result.get(field) != wanted:
             return False
 
     return True
@@ -286,9 +301,14 @@ CONTEXT_COVERAGE_BAR = 0.99
 # named summary is no longer owed; top-10 presence still is.
 SELF_RETRIEVAL_RECALL_1_BAR = 0.90
 SELF_RETRIEVAL_RECALL_10_BAR = 0.99
+# Datasets whose quality bars the requester has ratified. The others gate
+# on the dataset-independent canaries only until their bars are decided.
+RATIFIED_QUALITY_PROFILES = frozenset({JAPAN.name})
 
 
-def check_thresholds(report: dict[str, Any]) -> list[str]:
+def check_thresholds(
+    report: dict[str, Any], *, profile: DatasetProfile = JAPAN
+) -> list[str]:
     """Return failure messages against the ratified intent.md bars.
 
     Existence is verified before comparison: a missing metric is a
@@ -296,6 +316,14 @@ def check_thresholds(report: dict[str, Any]) -> list[str]:
     check mode must not.
     """
 
+    failures: list[str] = []
+    if profile.name in RATIFIED_QUALITY_PROFILES:
+        failures.extend(_quality_failures(report))
+    failures.extend(_canary_failures(report))
+    return failures
+
+
+def _quality_failures(report: dict[str, Any]) -> list[str]:
     failures: list[str] = []
     by_tier = report.get("golden_mean_precision_by_tier") or {}
     basic = by_tier.get("basic")
@@ -329,7 +357,11 @@ def check_thresholds(report: dict[str, Any]) -> list[str]:
             failures.append(
                 f"self-retrieval recall@10 {recall_10} < {SELF_RETRIEVAL_RECALL_10_BAR}"
             )
+    return failures
 
+
+def _canary_failures(report: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
     coverage = report.get("context_coverage")
     if coverage is None:
         failures.append("context coverage was not measured")

@@ -69,3 +69,9 @@ def test_default_profile_keeps_the_japan_commands() -> None:
     assert "evaluate_search --check-thresholds" in _dry_run(
         "eval", "--check-thresholds"
     )
+
+
+@pytest.mark.parametrize("profile", sorted(PROFILES))
+@pytest.mark.parametrize("recipe", ["eval", "diagnose", "eval-names"])
+def test_eval_recipes_follow_the_profile(profile: str, recipe: str) -> None:
+    assert f'--dataset-profile "{profile}"' in _dry_run(f"profile={profile}", recipe)
