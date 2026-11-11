@@ -1,6 +1,6 @@
 # Handover
 
-**Last updated:** 2026-08-27 (JST)
+**Last updated:** 2026-11-11 (JST)
 **Updated by:** claude (AI session, Windows workstation)
 
 ## Current State
@@ -142,8 +142,19 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   panel selection. `marimo/catalog_snapshot.json` was already
   regenerated in #49.
 
+- **Related datasets (branch `build/add-finance-pii-datasets`, not
+  pushed)**: `nvidia/Nemotron-Personas-Finance-Japan` (c73cc86; 1M rows,
+  50 columns, 8 shards) and `nvidia/Nemotron-PII-Japan` (a074898; 100k
+  annotated documents) are Git LFS submodules under `datasets/`, pulled
+  and `lfs fsck`-verified on this machine. They are stored only; no code
+  reads them. ruff now excludes `datasets/` (it reformatted a code block
+  in the PII README on every `just check`), and
+  `docs/storage-footprint.md` counts the LFS object store that doubles
+  every pulled dataset.
+
 ## In Progress
-Nothing in flight.
+Branch `build/add-finance-pii-datasets` (5 commits) waits for the
+owner's go-ahead to push and open a PR.
 
 ## Next Actions
 1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
@@ -171,6 +182,10 @@ Nothing in flight.
 6. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
    any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
    data and does not shrink automatically.
+7. Owner decision (open): should the Finance personas become searchable,
+   and what is PII Japan for? `docs/intent.md` covers only the main
+   corpus, so the requester updates it first. Indexing Finance would need
+   its own collection and the dataset guard in Known Risks.
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
@@ -191,6 +206,14 @@ Nothing in flight.
   (`download-dataset`); the current `qa_samples/qa_sample.parquet` was cut
   directly from shard 0 of the submodule (all 8 LFS shards are pulled,
   ~1.7GB).
+- `index --dataset` accepts any parquet path and records no dataset
+  identity. Finance has all 12 indexed columns (and the same shard file
+  names), so it would mix into the live `personas` collection; PII Japan
+  has none, and `PersonaRepository._read_frame` fills them with None
+  instead of failing (verified: first record is all None). Guard
+  candidate, as its own TDD work unit: record the source dataset in
+  `index_metadata.json` and refuse a mismatch, and fail when `uuid` is
+  missing. Until then the README warning is the only protection.
 
 ## Context the Next Actor Needs
 - Emulators are vendored at `emulator/compose.yaml`; ports/auth match
