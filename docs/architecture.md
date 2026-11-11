@@ -1,14 +1,16 @@
 # Architecture
 
-This document describes the current architecture of the search-ja-persona system.
+search-ja-persona indexes and searches three Japanese datasets, each in its
+own stores, with three complementary backends:
 
-## System Overview
+- **Qdrant**: vector similarity search (semantic matching)
+- **Elasticsearch**: keyword search (text matching)
+- **Neo4j**: knowledge graph (relationship context)
 
-search-ja-persona is a CLI tool for indexing and searching the Nemotron Personas Japan dataset (1M Japanese personas) using three complementary search backends:
-
-- **Qdrant** - Vector similarity search (semantic matching)
-- **Elasticsearch** - Keyword search (text matching)
-- **Neo4j** - Knowledge graph (relationship context)
+The datasets are Nemotron-Personas-Japan (1M personas, profile `japan`),
+Nemotron-Personas-Finance-Japan (1M personas, `finance`), and
+Nemotron-PII-Japan (100k documents, `pii`). A dataset profile decides which
+stores, fields, and graph shape every request uses (see Dataset Profiles).
 
 ## Data Flow
 
@@ -16,15 +18,15 @@ search-ja-persona is a CLI tool for indexing and searching the Nemotron Personas
 Parquet Shards
       |
       v
-PersonaRepository (stream with batch/limit)
+PersonaRepository (check dataset columns, stream with batch/limit)
       |
       v
 PersonaIndexer
-      |  compose text --> strip person names --> embed (batched)
+      |  compose text --> [persona datasets: strip person names] --> embed (batched)
       |
       +---> QdrantService (vector points; original text in payload)
       +---> ElasticsearchService (keyword documents, names included)
-      +---> Neo4jService (graph nodes)
+      +---> Neo4jService (graph nodes under the profile's label)
 
 Query text
       |
@@ -42,10 +44,14 @@ PersonaSearchService
 Fused Results (rrf_score + score + sources + text + context)
 ```
 
+Every service talks to the selected profile's collection, index, and label.
+
 Legend:
 - Parquet Shards: データセットの分割ファイル
-- PersonaRepository: Parquet ストリーミング読み出し
-- PersonaIndexer: 一括インデクサ（埋め込み入力からは人名を除去）
+- PersonaRepository: Parquet ストリーミング読み出し（列からデータセットを判定）
+- PersonaIndexer: 一括インデクサ（ペルソナのデータセットでは埋め込み入力から人名を除去）
+- persona datasets: ペルソナのデータセット（japan、finance）
+- profile: データセットプロファイル
 - vector leg / keyword leg: ベクトル検索側 / キーワード検索側
 - RRF fusion: 順位ベースの融合（Reciprocal Rank Fusion）
 - Fused Results: 融合済み検索結果
@@ -104,16 +110,22 @@ measured RTX 4090 throughput optima.
 
 ## Dataset Profiles
 
-Three datasets are indexed side by side. Each has a profile
-(`search_ja_persona/dataset_profiles.py`, CLI `--dataset-profile`, default
-`japan`) that owns its stores, so indexing, searching, or clearing one never
-touches another:
+Each dataset has a profile (`search_ja_persona/dataset_profiles.py`, CLI
+`--dataset-profile`, justfile `profile`, default `japan`) that owns its
+stores, so indexing, searching, or clearing one never touches another
+(ADR 0004).
 
-| Profile | Source | Text fields | Payload / filters | Stores (Qdrant = ES name) | Neo4j graph | Embedding input |
-|---------|--------|-------------|-------------------|---------------------------|-------------|-----------------|
-| `japan` | Nemotron-Personas-Japan (1M) | 6 persona fields | `prefecture`, `region` / `prefecture` | `personas` | `Persona` -LIVES_IN-> `Prefecture`, -LOCATED_IN-> `Region` | `strip-person-names-v1` |
-| `finance` | Nemotron-Personas-Finance-Japan (1M) | 3 finance personas + the 6 above | same as japan | `finance_personas` | `FinancePersona`, same relationships | `strip-person-names-v1` |
-| `pii` | Nemotron-PII-Japan (100k documents) | `document_text`, `document_description` | `domain`, `document_type` / both | `pii_documents` | `PiiDocument` -IN_DOMAIN-> `PiiDomain`, -OF_TYPE-> `PiiDocumentType`, -CONTAINS_PII-> `PiiLabel` | `raw-text-v1` |
+| Profile | Source | Text fields | Payload fields / filters | Embedding input |
+|---------|--------|-------------|--------------------------|-----------------|
+| `japan` | Nemotron-Personas-Japan (1M) | 6 persona fields | `prefecture`, `region` / `prefecture` | `strip-person-names-v1` |
+| `finance` | Nemotron-Personas-Finance-Japan (1M) | 3 finance personas + the 6 above | same as japan | `strip-person-names-v1` |
+| `pii` | Nemotron-PII-Japan (100k documents) | `document_text`, `document_description` | `domain`, `document_type` / both | `raw-text-v1` |
+
+| Profile | Qdrant collection = ES index | Neo4j graph |
+|---------|------------------------------|-------------|
+| `japan` | `personas` | `Persona` -LIVES_IN-> `Prefecture`, -LOCATED_IN-> `Region` |
+| `finance` | `finance_personas` | `FinancePersona`, same relationships |
+| `pii` | `pii_documents` | `PiiDocument` -IN_DOMAIN-> `PiiDomain`, -OF_TYPE-> `PiiDocumentType`, -CONTAINS_PII-> `PiiLabel` |
 
 - Every record is keyed by `uuid`; the pii profile renames the source `uid`
   to `uuid` and `text` to `document_text` (the aggregated `text` field
@@ -180,10 +192,11 @@ only for the returned top-`limit`.
 - `--verbose` mode reveals `vector_hits`, `keyword_hits`, `context_calls`
   counts (leg counts are fetch-depth sized; context is top-`limit` only)
 
-Embedding inputs exclude person names (`strip-person-names-v1`,
-`search_ja_persona/name_stripping.py`): vectors stop chasing surnames and
-given names, while stored text keeps them so BM25 name lookup and display
-are unchanged (ADR 0003).
+For japan and finance, embedding inputs exclude person names
+(`strip-person-names-v1`, `search_ja_persona/name_stripping.py`): vectors
+stop chasing surnames and given names, while stored text keeps them so BM25
+name lookup and display are unchanged (ADR 0003). pii embeds its document
+text as-is (`raw-text-v1`).
 
 ## Search Filters
 
