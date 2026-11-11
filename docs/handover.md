@@ -20,8 +20,9 @@ proof that japan stayed unchanged) and the 2026-08-27 research docs (japan).
 
 ## In Progress
 
-Branch `docs/refresh-markdown`: brings README, architecture,
-storage-footprint, emulator/README, and this file up to date after #101.
+Nothing in flight. The docs refresh after #101 (README, architecture,
+storage-footprint, emulator/README, decision-queue, and this file) landed
+as #103.
 
 ## Next Actions
 
