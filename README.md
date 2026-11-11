@@ -86,14 +86,23 @@ The full corpus ships as a Git LFS submodule; the 1k QA sample is generated loca
 
 3. **QA sample.** `qa_samples/qa_sample.parquet` (1k rows) is **not checked in** (it is git-ignored). Generate it for quick QA flows with `just qa-sample` once the dataset from step 1 or 2 is available — see [Generating the QA Sample](#generating-the-qa-sample).
 
-### Related datasets (stored, not indexed)
+### Related datasets
 
-More NVIDIA Japanese datasets (CC BY 4.0) ship as Git LFS submodules next to the main corpus. No code in this repo reads them.
+More NVIDIA Japanese datasets (CC BY 4.0) ship as Git LFS submodules next to the main corpus.
 
 | Submodule | Contents | Working tree |
 |-----------|----------|--------------|
 | `datasets/Nemotron-Personas-Finance-Japan` | 1,000,000 records × 50 fields in 8 parquet shards: the main corpus's persona fields plus household finance attributes (income, financial assets, financial literacy, …) and 9 persona texts per record | ~1.4 GB |
 | `datasets/Nemotron-PII-Japan` | 100,000 synthetic documents (8 domains such as medical, finance, and government) with PII span annotations, in one `data.parquet`; not personas | ~76 MB |
+
+Each indexed dataset has a **dataset profile** (`--dataset-profile`, default `japan`) that owns its stores, so indexing, searching, or clearing one dataset never touches another:
+
+| Profile | Source | Qdrant collection / ES index | Neo4j label | Metadata file |
+|---------|--------|------------------------------|-------------|---------------|
+| `japan` | `datasets/Nemotron-Personas-Japan/data` | `personas` | `Persona` | `.cache/index_metadata.json` |
+| `finance` | `datasets/Nemotron-Personas-Finance-Japan/data` | `finance_personas` | `FinancePersona` | `.cache/index_metadata.finance.json` |
+
+A profile refuses `--qdrant-collection` / `--es-index` names that belong to another profile. A custom collection name gets its own metadata file (`.cache/index_metadata.<profile>.<collection>.json`), so clearing it keeps the default index's metadata. `Prefecture` and `Region` graph nodes are shared reference data: clearing a dataset deletes only its own nodes.
 
 Fetch each one by path, the same way as the main corpus:
 
@@ -106,7 +115,7 @@ git -C datasets/Nemotron-PII-Japan lfs pull
 
 Always pass a path: a bare `git submodule update --init` checks out every dataset submodule, and the git-lfs smudge filter then downloads all of their shards.
 
-Do not pass these datasets to `search_ja_persona.cli index`. Finance has every column the indexer reads and the same shard file names as the main corpus, so it indexes without error and mixes into the `personas` collection. PII Japan has none of those columns, and the indexer fills missing columns with nulls instead of failing. `just full-index` reads only `datasets/Nemotron-Personas-Japan`.
+Index Finance only with `--dataset-profile finance`: its shards have every column the `japan` profile reads and the same file names as the main corpus, so under the default profile they would index without error into `personas`. PII Japan has no profile yet; do not pass it to `search_ja_persona.cli index` (the indexer fills missing columns with nulls instead of failing).
 
 ## Generating the QA Sample
 

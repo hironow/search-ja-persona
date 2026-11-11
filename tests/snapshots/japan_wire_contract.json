@@ -262,6 +262,7 @@
     }
   ],
   "cli_index_metadata": {
+    "dataset": "japan",
     "embedder": {
       "preset": "hashed",
       "type": "hashed",
@@ -788,6 +789,7 @@
     }
   ],
   "cli_repair_metadata": {
+    "dataset": "japan",
     "embedder": {
       "preset": "hashed",
       "type": "hashed",

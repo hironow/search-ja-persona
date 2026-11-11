@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .persona_fields import PERSONA_TEXT_FIELDS
+from .persona_fields import FINANCE_PERSONA_TEXT_FIELDS, PERSONA_TEXT_FIELDS
 
 # Graph shapes the Neo4j service knows how to write.
 RESIDENCE_GRAPH = "residence"  # -[:LIVES_IN]->Prefecture, -[:LOCATED_IN]->Region
@@ -75,7 +75,35 @@ JAPAN = DatasetProfile(
     metadata_filename="index_metadata.json",
 )
 
-PROFILES: dict[str, DatasetProfile] = {profile.name: profile for profile in (JAPAN,)}
+FINANCE = DatasetProfile(
+    name="finance",
+    hf_dataset="nvidia/Nemotron-Personas-Finance-Japan",
+    source_dir="datasets/Nemotron-Personas-Finance-Japan/data",
+    columns=(
+        "uuid",
+        *FINANCE_PERSONA_TEXT_FIELDS,
+        "prefecture",
+        "region",
+        "occupation",
+        "age",
+        "sex",
+    ),
+    text_fields=FINANCE_PERSONA_TEXT_FIELDS,
+    summary_field="persona",
+    payload_fields=("prefecture", "region"),
+    filter_fields=("prefecture",),
+    keyword_boosts=("prefecture^0.5", "region^0.25"),
+    node_label="FinancePersona",
+    graph=RESIDENCE_GRAPH,
+    embedding_text_policy="strip-person-names-v1",
+    qdrant_collection="finance_personas",
+    es_index="finance_personas",
+    metadata_filename="index_metadata.finance.json",
+)
+
+PROFILES: dict[str, DatasetProfile] = {
+    profile.name: profile for profile in (JAPAN, FINANCE)
+}
 
 
 def get_profile(name: str) -> DatasetProfile:
@@ -87,6 +115,7 @@ def get_profile(name: str) -> DatasetProfile:
 
 
 __all__ = [
+    "FINANCE",
     "JAPAN",
     "PROFILES",
     "RESIDENCE_GRAPH",
