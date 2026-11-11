@@ -1,6 +1,6 @@
 [
   {"query": "住宅ローンの返済に不安を抱えている人", "tier": "basic", "expect": {"text_all": [["住宅ローン"], ["不安", "心配", "懸念"]]}},
-  {"query": "毎月コツコツ積み立てて資産を増やしている人", "tier": "basic", "expect": {"text_any": ["積立"]}},
+  {"query": "毎月コツコツ積み立てて資産を増やしている人", "tier": "basic", "expect": {"text_any": ["積立", "積み立"]}},
   {"query": "株式の配当を受け取っている投資家", "tier": "basic", "expect": {"text_all": [["株式"], ["配当"]]}},
   {"query": "子どもの教育資金を計画的に貯めている親", "tier": "basic", "expect": {"text_any": ["教育資金", "学資"]}},
   {"query": "生命保険や医療保険を見直したいと考えている人", "tier": "basic", "expect": {"text_all": [["保険"], ["見直"]]}},
