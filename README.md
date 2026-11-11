@@ -115,7 +115,7 @@ git -C datasets/Nemotron-PII-Japan lfs pull
 
 Always pass a path: a bare `git submodule update --init` checks out every dataset submodule, and the git-lfs smudge filter then downloads all of their shards.
 
-Index Finance only with `--dataset-profile finance`: its shards have every column the `japan` profile reads and the same file names as the main corpus, so under the default profile they would index without error into `personas`. PII Japan has no profile yet; do not pass it to `search_ja_persona.cli index` (the indexer fills missing columns with nulls instead of failing).
+Before reading a parquet file, the repository detects its dataset from the source columns (`finance_persona` → `finance`, otherwise `uuid` → `japan`) and refuses a file that does not match the selected profile, or one with no known dataset's columns (PII Japan has no profile yet). Finance shards share file names with the main corpus, so `--dataset-profile finance` is required to index them.
 
 ## Generating the QA Sample
 

@@ -9,6 +9,7 @@ dataset never touches another.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from .persona_fields import FINANCE_PERSONA_TEXT_FIELDS, PERSONA_TEXT_FIELDS
@@ -42,6 +43,8 @@ class DatasetProfile:
     qdrant_collection: str
     es_index: str
     metadata_filename: str
+    # Source columns that identify this dataset's parquet files.
+    marker_columns: frozenset[str]
 
     @property
     def uuid_constraint_name(self) -> str:
@@ -73,6 +76,7 @@ JAPAN = DatasetProfile(
     qdrant_collection="personas",
     es_index="personas",
     metadata_filename="index_metadata.json",
+    marker_columns=frozenset({"uuid"}),
 )
 
 FINANCE = DatasetProfile(
@@ -99,11 +103,26 @@ FINANCE = DatasetProfile(
     qdrant_collection="finance_personas",
     es_index="finance_personas",
     metadata_filename="index_metadata.finance.json",
+    marker_columns=frozenset({"uuid", "finance_persona"}),
 )
 
 PROFILES: dict[str, DatasetProfile] = {
     profile.name: profile for profile in (JAPAN, FINANCE)
 }
+
+
+# Most specific first: a finance shard also has every japan marker.
+_DETECTION_ORDER: tuple[DatasetProfile, ...] = (FINANCE, JAPAN)
+
+
+def detect_profile(column_names: Iterable[str]) -> DatasetProfile | None:
+    """Return the dataset whose source parquet has these columns."""
+
+    names = set(column_names)
+    for profile in _DETECTION_ORDER:
+        if profile.marker_columns <= names:
+            return profile
+    return None
 
 
 def get_profile(name: str) -> DatasetProfile:
@@ -120,5 +139,6 @@ __all__ = [
     "PROFILES",
     "RESIDENCE_GRAPH",
     "DatasetProfile",
+    "detect_profile",
     "get_profile",
 ]
