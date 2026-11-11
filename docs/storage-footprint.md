@@ -15,8 +15,8 @@ size and the chosen embedder dimension.
 | Scenario | Embedder | New disk needed | Notes |
 |----------|----------|-----------------|-------|
 | QA sample (1k rows) | `mini-lm` (384d) | **~5 GB** | Smallest end-to-end run; full corpus not required |
-| Full corpus (1M rows) | `mini-lm` (384d) | **~14–19 GB** | Source parquet + emulator volumes dominate |
-| Full corpus (1M rows) | `e5-large` (1024d) | **~20–27 GB** | Larger vectors inflate Qdrant + model cache |
+| Full corpus (1M rows) | `mini-lm` (384d) | **~16–21 GB** | Source parquet (two copies) + emulator volumes dominate |
+| Full corpus (1M rows) | `e5-large` (1024d) | **~22–29 GB** | Larger vectors inflate Qdrant + model cache |
 
 "New disk needed" is on top of the Python virtualenv (~1 GB) and excludes the
 redundant Hugging Face arrow cache, which can be deleted (see
@@ -29,6 +29,7 @@ redundant Hugging Face arrow cache, which can be deleted (see
  |
  +-- venv (torch, pyarrow, ...)  ~1.0
  +-- source parquet (8 shards)   ~1.6
+ +-- LFS object store (.git)     ~1.6
  +-- model cache (mini-lm)       ~0.1
  +-- docker images (3)           ~2.3
  +-- docker vm runtime           ~1-2
@@ -40,6 +41,7 @@ redundant Hugging Face arrow cache, which can be deleted (see
 Legend:
 - `venv`: Python 仮想環境 / 依存ライブラリ
 - `source parquet`: 元データセットの parquet シャード
+- `LFS object store`: Git LFS が `.git/modules/` に持つ parquet の複製
 - `model cache`: 埋め込みモデルのローカルキャッシュ
 - `docker images`: エミュレータのコンテナイメージ
 - `docker vm runtime`: Docker VM のオーバーレイ・実行時領域
@@ -69,12 +71,15 @@ The environment is CPU-only on macOS, so there is no CUDA bloat.
 |------|------|-----------|
 | `qa_samples/qa_sample.parquet` | ~1.1 MB | QA path (generated via `just qa-sample`; git-ignored, not checked in) |
 | `datasets/Nemotron-Personas-Japan/data/*.parquet` | ~1.6 GB (8 × 206 MB) | Full-corpus indexing |
+| `.git/modules/datasets/Nemotron-Personas-Japan/lfs/objects` | ~1.6 GB | Git LFS object store behind the shards above (not hard-linked) |
 | `.hf-cache/nvidia___nemotron-personas-japan` (arrow) | ~3.3 GB | `download-dataset` / QA-sample regeneration only |
 
-The dataset is effectively stored **twice**: as compressed parquet shards under
-`datasets/` and as an expanded arrow cache under `.hf-cache/`. Indexing reads
-the parquet shards; the arrow cache is only consumed by
-`scripts/generate_qa_sample.py` and the `download-dataset` command.
+The dataset is effectively stored **three times**: as compressed parquet shards
+under `datasets/`, as the identical Git LFS objects under `.git/modules/`
+(git-lfs keeps both a checked-out copy and its object store), and as an
+expanded arrow cache under `.hf-cache/`. Indexing reads the parquet shards; the
+arrow cache is only consumed by `scripts/generate_qa_sample.py` and the
+`download-dataset` command.
 
 ### Embedding models (approx, downloaded on first use)
 
@@ -139,9 +144,8 @@ This keeps the total end-to-end footprint (beyond the existing venv) to roughly
 | Action | Reclaims | Safe when |
 |--------|----------|-----------|
 | `rm -rf .hf-cache` | ~3.3 GB | Parquet shards under `datasets/` are present (indexing does not use the arrow cache) |
-| Remove `datasets/Nemotron-Personas-Japan/data/*.parquet` | ~1.6 GB | Running the QA path only; re-fetch via the dataset submodule / `download-dataset` when needed |
+| `git submodule deinit -f datasets/Nemotron-Personas-Japan`, then `rm -rf .git/modules/datasets/Nemotron-Personas-Japan/lfs/objects` | ~3.2 GB (shards + LFS objects) | Running the QA path only; restore with `git submodule update --init` + `git lfs pull` (see the README) |
 | `uv cache prune` (or `rm -rf .uv-cache`) | ~55 MB | Anytime; repopulated on next `uv` run |
-| `git gc` on `.git` (~1.8 GB) | varies | Anytime; large historical blobs limit how much is reclaimable |
 | `docker image prune` / drop emulator volumes | up to ~12 GB | Between runs; re-index to rebuild |
 
 ## Verifying Available Space
