@@ -50,8 +50,8 @@ Results are ordered by `rrf_score` (the fusion score); `sources` lists which leg
 | `scripts/diagnose_golden.py` | Predicate discriminative-power diagnostic (`just diagnose`) |
 | `scripts/name_lookup_queries.json` + `evaluate_name_lookup.py` | Fixed-name lookup benchmark (`just eval-names`) |
 | `scripts/ensure_payload_index.py` | One-off Qdrant payload-index migration (`just ensure-payload-index`) |
-| `marimo/catalog.py` + `catalog_snapshot.json` | Feature-catalog notebook with a committed live-result snapshot |
-| `marimo/persona_panel.py` + `panel_example.jsonl` | Persona-panel survey app (Ollama) with a bundled M=30 sample |
+| `marimo/catalog.py` + `catalog_snapshot*.json` | Feature-catalog notebook (dataset selector) with a committed live-result snapshot per dataset |
+| `marimo/persona_panel.py` + `panel_example.jsonl` | Persona-panel survey app (Ollama; japan or finance personas) with a bundled M=30 sample |
 | `emulator/compose.yaml` | Standalone Qdrant/Elasticsearch/Neo4j stack (vendored minimal subset) |
 | `docs/architecture.md` | System architecture documentation |
 | `docs/storage-footprint.md` | Disk capacity requirements and space-reclaim guide |
@@ -267,8 +267,8 @@ The project uses [just](https://just.systems) for task automation:
 | `just diagnose` | Golden-predicate diagnostic (fused / vector / keyword / random) |
 | `just eval-names` | Name-lookup benchmark on the fixed 40-name fixture |
 | `just ensure-payload-index` | Backfill the Qdrant prefecture payload index (idempotent) |
-| `just notebook` / `just notebook-export` | Feature-catalog marimo notebook (edit / static HTML) |
-| `just panel` / `just panel-app` | Persona-panel notebook (edit / read-mode app): top-M personas answer a text/image input via local Ollama, JSONL output |
+| `just notebook` / `just notebook-export` | Feature-catalog marimo notebook (edit / static HTML); pick japan, finance, or pii in its dataset selector |
+| `just panel` / `just panel-app` | Persona-panel notebook (edit / read-mode app): top-M personas from japan or finance answer a text/image input via local Ollama, JSONL output (with a `dataset` field) |
 
 ## Troubleshooting Checklist
 

@@ -16,12 +16,13 @@ def _(mo):
     mo.md("""
     # 🗳️ Persona Panel — 100万人の街頭アンケート
 
-    100万ペルソナの検索インデックスから **上位 M 人** を回答者に選び、
+    ペルソナの検索インデックス（Nemotron-Personas-Japan または
+    Nemotron-Personas-Finance-Japan、各 100 万人）から **上位 M 人** を回答者に選び、
     テキスト（＋任意で画像）の問いかけに **なりきり回答** してもらいます。
     推論はローカル Ollama、結果は画面のテーブルと **JSONL**
     （`outputs/persona_panel-*.jsonl`）に記録されます。
 
-    使い方: ① モデルを選ぶ → ② 回答者を決める → ③ 問いかけを作る
+    使い方: ① モデルを選ぶ → ② データセットと回答者を決める → ③ 問いかけを作る
     （例題「きのこの山 vs たけのこの里」をそのまま選べます）→
     ④ **パネルに聞く**
     """)
@@ -49,6 +50,7 @@ def _():
         sys.path.insert(0, str(ROOT))
 
     from search_ja_persona.application import ApplicationConfig, PersonaApplication
+    from search_ja_persona.dataset_profiles import FINANCE, JAPAN, get_profile
     from search_ja_persona.embeddings import EMBEDDER_PRESETS
     from search_ja_persona.services import RequestDescriptor, SimpleHttpTransport
 
@@ -59,7 +61,12 @@ def _():
             return _ex.submit(fn, *args, **kwargs).result()
 
     OUTPUT_DIR = ROOT / "outputs"
-    INDEX_METADATA_PATH = ROOT / ".cache" / "index_metadata.json"
+    CACHE_DIR = ROOT / ".cache"
+    # Persona datasets only: PII Japan holds documents, not people.
+    PANEL_DATASETS = {
+        "Nemotron-Personas-Japan（japan）": JAPAN.name,
+        "Nemotron-Personas-Finance-Japan（finance）": FINANCE.name,
+    }
     OLLAMA_HOST = "127.0.0.1"
     OLLAMA_PORT = 11434
     DEFAULT_MODEL = "huihui_ai/Qwen3.8-abliterated:latest"
@@ -94,10 +101,11 @@ def _():
         IMAGE_EXAMPLE,
         IMAGE_NONE,
         IMAGE_UPLOAD,
-        INDEX_METADATA_PATH,
+        CACHE_DIR,
         OLLAMA_HOST,
         OLLAMA_PORT,
         OUTPUT_DIR,
+        PANEL_DATASETS,
         PersonaApplication,
         QUESTION_EXAMPLES,
         ROOT_EXAMPLE_JSONL,
@@ -106,6 +114,7 @@ def _():
         UTC,
         base64,
         datetime,
+        get_profile,
         json,
         panel_app_cache,
         run_io,
@@ -163,15 +172,20 @@ def _(
 
 
 @app.cell
-def _(mo):
+def _(PANEL_DATASETS, mo):
+    panel_dataset = mo.ui.dropdown(
+        options=PANEL_DATASETS,
+        value=next(iter(PANEL_DATASETS)),
+        label="どのデータセットから集める？（それぞれ別の索引）",
+    )
     panel_query = mo.ui.text(
         value="お菓子やチョコレートが好きな人",
         label="どんなペルソナを集める？（検索クエリの上位が回答者になる）",
         full_width=True,
     )
     panel_m = mo.ui.slider(start=1, stop=20, step=1, value=3, label="何人に聞く？（M）")
-    mo.vstack([mo.md("## ② 回答者（パネル）"), panel_query, panel_m])
-    return panel_m, panel_query
+    mo.vstack([mo.md("## ② 回答者（パネル）"), panel_dataset, panel_query, panel_m])
+    return panel_dataset, panel_m, panel_query
 
 
 @app.cell
@@ -255,8 +269,8 @@ def _(mo):
 def _(
     ANSWER_SCHEMA,
     ApplicationConfig,
+    CACHE_DIR,
     EMBEDDER_PRESETS,
-    INDEX_METADATA_PATH,
     OLLAMA_HOST,
     OLLAMA_PORT,
     OUTPUT_DIR,
@@ -266,12 +280,14 @@ def _(
     UTC,
     base64,
     datetime,
+    get_profile,
     input_text,
     json,
     mo,
     model_choice,
     ollama_up,
     panel_app_cache: dict,
+    panel_dataset,
     panel_m,
     panel_query,
     resolved_image,
@@ -292,17 +308,19 @@ def _(
         mo.callout(mo.md("質問テキストを入力してください。"), kind="warn"),
     )
 
+    _dataset = get_profile(panel_dataset.value)
+    _metadata_path = CACHE_DIR / _dataset.metadata_filename
     _preset = "ruri-v3-310m"
-    if INDEX_METADATA_PATH.exists():
-        _meta = json.loads(INDEX_METADATA_PATH.read_text(encoding="utf-8"))
+    if _metadata_path.exists():
+        _meta = json.loads(_metadata_path.read_text(encoding="utf-8"))
         _recorded = (_meta.get("embedder") or {}).get("preset")
         if _recorded in EMBEDDER_PRESETS:
             _preset = _recorded
-    if _preset not in panel_app_cache:
-        panel_app_cache[_preset] = PersonaApplication.build(
-            ApplicationConfig(embedder=_preset)
+    if (_dataset.name, _preset) not in panel_app_cache:
+        panel_app_cache[(_dataset.name, _preset)] = PersonaApplication.build(
+            ApplicationConfig(embedder=_preset, dataset_profile=_dataset.name)
         )
-    _search_app = panel_app_cache[_preset]
+    _search_app = panel_app_cache[(_dataset.name, _preset)]
 
     _panelists = run_io(_search_app.search, panel_query.value, limit=panel_m.value)
     mo.stop(
@@ -327,8 +345,9 @@ def _(
         mo.status.progress_bar(_panelists, title="パネル回答を生成中", show_eta=True),
         start=1,
     ):
-        # Show the full aggregated description (all six persona facets,
-        # ~550 chars) — individual fields are only ~100 chars each.
+        # Show the full aggregated description (all persona facets: six
+        # for japan, ~550 chars; nine for finance) — individual fields are
+        # only ~100 chars each.
         _profile = (_persona.get("text") or "").strip()
         _system = (
             "あなたは以下のペルソナの人物です。この人物になりきって、一人称で、"
@@ -376,6 +395,7 @@ def _(
         _records.append(
             {
                 "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+                "dataset": _dataset.name,
                 "model": _model,
                 "panel_query": panel_query.value,
                 "input_text": input_text.value,
@@ -407,6 +427,7 @@ def _(
             mo.hstack(
                 [
                     mo.stat(_model, label="model"),
+                    mo.stat(_dataset.name, label="dataset"),
                     mo.stat(len(_records), label="回答者"),
                     mo.stat(f"{_total_s:.1f}s", label="所要時間"),
                     mo.stat("あり" if _image_name else "なし", label="画像"),
@@ -510,6 +531,8 @@ def _(history_choice, history_paths, json, mo):
     mo.stop(not _records, mo.md("_このファイルは空です。_"))
 
     _models = sorted({r.get("model", "?") for r in _records})
+    # Runs recorded before datasets were split carry no "dataset" key.
+    _datasets = sorted({r.get("dataset", "japan") for r in _records})
     _queries = sorted({r.get("panel_query", "?") for r in _records})
     _with_image = sum(1 for r in _records if r.get("image"))
     _tally = collections.Counter(r.get("verdict", "") for r in _records)
@@ -524,6 +547,7 @@ def _(history_choice, history_paths, json, mo):
                 [
                     mo.stat(len(_records), label="回答数"),
                     mo.stat(", ".join(_models), label="model"),
+                    mo.stat(", ".join(_datasets), label="dataset"),
                     mo.stat(f"{_with_image}/{len(_records)}", label="画像あり"),
                 ]
             ),
@@ -567,8 +591,9 @@ def _(mo):
             "📄 JSONL フォーマット": mo.md(
                 """
                 1 行 = 1 ペルソナの回答。フィールド:
-                `timestamp, model, panel_query, input_text, image, rank, score,
-                uuid, prefecture, region, persona, verdict, answer, latency_ms`。
+                `timestamp, dataset, model, panel_query, input_text, image, rank,
+                score, uuid, prefecture, region, persona, verdict, answer,
+                latency_ms`（`dataset` のない古い行は japan）。
                 出力先は `outputs/persona_panel-<UTC時刻>.jsonl`（git 管理外）。
                 """
             ),
