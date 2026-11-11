@@ -136,6 +136,8 @@ whenever you need a fresh slice or after updating the source dataset:
 
 Override the default count with `--limit` when needed (for example, `--limit 2000`).
 
+For the other datasets, `just profile=finance qa-sample` and `just profile=pii qa-sample` copy the first rows of the dataset's first submodule file (all source columns) into `qa_samples/qa_sample.finance.parquet` / `qa_samples/qa_sample.pii.parquet`. The justfile's `profile` variable (default `japan`) selects the dataset for every `qa-*` recipe and `full-index`.
+
 ## Indexing Personas
 
 ### Full corpus (about 1,000,000 rows)
@@ -144,9 +146,11 @@ Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` (requires the dat
 
 ```bash
 just full-index
+just profile=finance full-index   # 8 shards -> finance_personas / FinancePersona
+just profile=pii full-index       # data.parquet -> pii_documents / PiiDocument
 ```
 
-This indexes the eight parquet shards one at a time (each shard is a
+This indexes the parquet shards one at a time (each shard is a
 checkpoint: uuid-keyed upserts make reruns idempotent, so a failed run
 resumes by rerunning from the failed shard). Equivalent single-shard
 command:
