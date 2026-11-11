@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -189,26 +190,26 @@ def test_clearing_finance_leaves_japan_stores_and_metadata(
 def test_a_profile_refuses_another_profiles_store_names(
     store_requests: list[dict[str, Any]],
     argv: list[str],
-    capsys: pytest.CaptureFixture[str],
+    printed: Callable[[], str],
 ) -> None:
     with pytest.raises(SystemExit) as excinfo:
         cli.main([*argv, "--embedder", "hashed"] if argv[0] == "search" else argv)
 
     assert excinfo.value.code == 2
-    assert "belongs to another dataset profile" in capsys.readouterr().out
+    assert "belongs to another dataset profile" in printed()
     assert store_requests == []
 
 
 def test_refused_index_sends_nothing(
     store_requests: list[dict[str, Any]],
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    printed: Callable[[], str],
 ) -> None:
     with pytest.raises(SystemExit) as excinfo:
         _index_finance(tmp_path, "--qdrant-collection", "personas")
 
     assert excinfo.value.code == 2
-    assert "belongs to another dataset profile" in capsys.readouterr().out
+    assert "belongs to another dataset profile" in printed()
     assert store_requests == []
 
 
@@ -226,7 +227,7 @@ def test_clearing_a_custom_collection_keeps_the_default_metadata(
 
 
 def test_metadata_recorded_for_another_dataset_fails_closed(
-    store_requests: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
+    store_requests: list[dict[str, Any]], printed: Callable[[], str]
 ) -> None:
     japan_metadata = {
         "dataset": "japan",
@@ -244,7 +245,7 @@ def test_metadata_recorded_for_another_dataset_fails_closed(
         cli.main(["search", "--dataset-profile", "finance", "--query", "q"])
 
     assert excinfo.value.code == 2
-    assert "describes dataset 'japan', not 'finance'" in capsys.readouterr().out
+    assert "describes dataset 'japan', not 'finance'" in printed()
     assert store_requests == []
 
 

@@ -92,3 +92,18 @@ def store_requests(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     monkeypatch.setattr(SimpleHttpTransport, "request", record)
     monkeypatch.setattr(cli, "_confirm_reset", lambda: True)
     return recorded
+
+
+@pytest.fixture
+def printed(capsys: pytest.CaptureFixture[str]):
+    """Captured stdout with whitespace collapsed.
+
+    The CLI prints through rich, which wraps long lines at the console
+    width, so a message can break anywhere (a long temp path moved the
+    break into the middle of an asserted phrase on CI). Assert on this.
+    """
+
+    def read() -> str:
+        return " ".join(capsys.readouterr().out.split())
+
+    return read

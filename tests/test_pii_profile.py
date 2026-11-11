@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -237,13 +238,13 @@ def test_pii_search_filters_by_domain_and_document_type(
 def test_filters_outside_the_profile_are_refused(
     store_requests: list[dict[str, Any]],
     argv: list[str],
-    capsys: pytest.CaptureFixture[str],
+    printed: Callable[[], str],
 ) -> None:
     with pytest.raises(SystemExit) as excinfo:
         cli.main(["search", "--query", "q", "--embedder", "hashed", *argv])
 
     assert excinfo.value.code == 2
-    assert "does not support the" in capsys.readouterr().out
+    assert "does not support the" in printed()
     assert store_requests == []
 
 
