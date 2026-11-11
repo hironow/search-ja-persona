@@ -160,7 +160,10 @@ def _cleanup_resources(app: PersonaApplication, uuids: list[str]) -> None:
                 body={
                     "statements": [
                         {
-                            "statement": "MATCH (p:Persona) WHERE p.uuid IN $uuids DETACH DELETE p",
+                            "statement": (
+                                f"MATCH (p:{app.neo4j.label}) "
+                                "WHERE p.uuid IN $uuids DETACH DELETE p"
+                            ),
                             "parameters": {"uuids": uuids},
                         }
                     ]
@@ -248,14 +251,16 @@ def test_prefecture_filtered_search_with_emulators(tmp_path: Path) -> None:
 
         query = "スキーが好きな人"
         vector = app.embedder.embed_query(query)
-        vector_hits = app.qdrant.search(vector, limit=5, prefecture="北海道")
+        vector_hits = app.qdrant.search(
+            vector, limit=5, filters={"prefecture": "北海道"}
+        )
         assert vector_hits
         assert all(
             hit.get("payload", {}).get("prefecture") == "北海道" for hit in vector_hits
         )
 
         keyword_hits = (
-            app.elasticsearch.search(query, limit=5, prefecture="北海道")
+            app.elasticsearch.search(query, limit=5, filters={"prefecture": "北海道"})
             .get("hits", {})
             .get("hits", [])
         )
@@ -264,7 +269,7 @@ def test_prefecture_filtered_search_with_emulators(tmp_path: Path) -> None:
             hit.get("_source", {}).get("prefecture") == "北海道" for hit in keyword_hits
         )
 
-        fused = app.search(query, limit=5, prefecture="北海道")
+        fused = app.search(query, limit=5, filters={"prefecture": "北海道"})
         assert fused
         assert all(hit.get("prefecture") == "北海道" for hit in fused)
     finally:
@@ -323,8 +328,109 @@ def test_rrf_fusion_with_emulators(tmp_path: Path) -> None:
         assert results[0]["uuid"] == dual_uuid
         assert results[0]["sources"] == ["vector", "keyword"]
 
-        filtered = app.search(query, limit=3, prefecture="北海道")
+        filtered = app.search(query, limit=3, filters={"prefecture": "北海道"})
         assert filtered
         assert all(hit["prefecture"] == "北海道" for hit in filtered)
+    finally:
+        _cleanup_resources(app, uuids)
+
+
+def _profile_app(profile: str) -> PersonaApplication:
+    # Test-only store names (never another profile's reserved ones) and
+    # synthetic uuids: cleanup only ever touches test data.
+    unique_suffix = uuid4().hex[:12]
+    config = ApplicationConfig(
+        dataset_profile=profile,
+        qdrant_collection=f"test_{profile}_{unique_suffix}",
+        es_index=f"test-{profile}-{unique_suffix}",
+    )
+    _ensure_emulators_available(config)
+    return PersonaApplication.build(config)
+
+
+def test_finance_profile_with_emulators(tmp_path: Path) -> None:
+    from search_ja_persona.persona_fields import FINANCE_PERSONA_TEXT_FIELDS
+
+    def _row(prefecture: str, region: str, theme: str) -> dict:
+        row = {field: f"{theme}の記述。" for field in FINANCE_PERSONA_TEXT_FIELDS}
+        row.update(
+            uuid=uuid4().hex,
+            finance_persona=f"{theme}に備えて毎月貯蓄する。",
+            prefecture=prefecture,
+            region=region,
+        )
+        return row
+
+    rows = [
+        _row("北海道", "北海道地方", "住宅ローンの返済"),
+        _row("東京都", "関東地方", "住宅ローンの返済"),
+    ]
+    parquet_path = tmp_path / "finance.parquet"
+    PersonaRepository.write_sample(parquet_path, rows)
+    app = _profile_app("finance")
+    uuids = [row["uuid"] for row in rows]
+
+    try:
+        app.index([parquet_path], batch_size=len(rows))
+        app.elasticsearch.transport.request(
+            RequestDescriptor("POST", f"/{app.elasticsearch.index}/_refresh")
+        )
+
+        results = app.search(
+            "住宅ローンの返済に備える人", limit=2, filters={"prefecture": "北海道"}
+        )
+
+        assert [hit["uuid"] for hit in results] == [rows[0]["uuid"]]
+        hit = results[0]
+        assert hit["persona_fields"]["finance_persona"] == rows[0]["finance_persona"]
+        assert {r["type"] for r in hit["context"]["relationships"]} == {
+            "LIVES_IN",
+            "LOCATED_IN",
+        }
+        assert app.neo4j.label == "FinancePersona"
+    finally:
+        _cleanup_resources(app, uuids)
+
+
+def test_pii_profile_with_emulators(tmp_path: Path) -> None:
+    def _document(domain: str, document_type: str) -> dict:
+        text = "口座番号は1234567です。"
+        return {
+            "uid": uuid4().hex,
+            "domain": domain,
+            "document_type": document_type,
+            "document_description": f"{document_type}の書類です。",
+            "document_format": "unstructured",
+            "locale": "jp",
+            "text": text,
+            "spans": [
+                {"start": 5, "end": 12, "text": "1234567", "label": "account_number"}
+            ],
+            "text_tagged": "口座番号は[1234567]account_numberです。",
+        }
+
+    documents = [_document("金融", "口座開設申込書"), _document("医療", "診断書")]
+    parquet_path = tmp_path / "data.parquet"
+    PersonaRepository.write_sample(parquet_path, documents)
+    app = _profile_app("pii")
+    uuids = [document["uid"] for document in documents]
+
+    try:
+        app.index([parquet_path], batch_size=len(documents))
+        app.elasticsearch.transport.request(
+            RequestDescriptor("POST", f"/{app.elasticsearch.index}/_refresh")
+        )
+
+        results = app.search("口座番号", limit=2, filters={"domain": "金融"})
+
+        assert [hit["uuid"] for hit in results] == [documents[0]["uid"]]
+        hit = results[0]
+        assert hit["document_type"] == "口座開設申込書"
+        targets = {(r["type"], r["target"]) for r in hit["context"]["relationships"]}
+        assert targets == {
+            ("IN_DOMAIN", "金融"),
+            ("OF_TYPE", "口座開設申込書"),
+            ("CONTAINS_PII", "account_number"),
+        }
     finally:
         _cleanup_resources(app, uuids)

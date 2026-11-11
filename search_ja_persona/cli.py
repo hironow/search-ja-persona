@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import datasets
+from .dataset_profiles import JAPAN, PROFILES, DatasetProfile, get_profile
 from .embeddings import (
     EMBEDDER_PRESETS,
     FastEmbedder,
@@ -18,7 +19,6 @@ from .embeddings import (
     SentenceTransformerEmbedder,
 )
 from .indexer import PersonaIndexer
-from .persona_fields import DEFAULT_PERSONA_FIELDS, PERSONA_TEXT_FIELDS
 from .prefectures import validate_prefecture
 from .repository import PersonaRepository
 from .search import PersonaSearchService
@@ -31,7 +31,6 @@ from .services import (
 
 console = Console()
 METADATA_PATH = Path(".cache/index_metadata.json")
-PERSONA_FIELD_SET = set(PERSONA_TEXT_FIELDS)
 # Update this version whenever the embedding or persona field processing logic changes
 INDEX_METADATA_SCHEMA_VERSION = "2025-03-05"
 
@@ -113,13 +112,14 @@ def _build_parser() -> argparse.ArgumentParser:
     index_parser.add_argument(
         "--fastembed-cache-dir", type=Path, default=Path(".cache")
     )
+    _add_profile_argument(index_parser)
     index_parser.add_argument("--qdrant-host", default="127.0.0.1")
     index_parser.add_argument("--qdrant-port", type=int, default=6333)
-    index_parser.add_argument("--qdrant-collection", default="personas")
+    index_parser.add_argument("--qdrant-collection", default=None, help=STORE_NAME_HELP)
     index_parser.add_argument("--qdrant-distance", default="Cosine")
     index_parser.add_argument("--es-host", default="127.0.0.1")
     index_parser.add_argument("--es-port", type=int, default=9200)
-    index_parser.add_argument("--es-index", default="personas")
+    index_parser.add_argument("--es-index", default=None, help=STORE_NAME_HELP)
     index_parser.add_argument("--neo4j-host", default="127.0.0.1")
     index_parser.add_argument("--neo4j-port", type=int, default=7474)
     index_parser.add_argument("--neo4j-user", default="neo4j")
@@ -135,6 +135,16 @@ def _build_parser() -> argparse.ArgumentParser:
         type=validate_prefecture,
         default=None,
         help="Restrict results to residents of this prefecture (official name, e.g. 沖縄県)",
+    )
+    search_parser.add_argument(
+        "--domain",
+        default=None,
+        help="pii only: restrict results to one document domain (e.g. 金融)",
+    )
+    search_parser.add_argument(
+        "--document-type",
+        default=None,
+        help="pii only: restrict results to one document type (e.g. ローン審査書類)",
     )
     search_parser.add_argument(
         "--embedder",
@@ -162,13 +172,16 @@ def _build_parser() -> argparse.ArgumentParser:
     search_parser.add_argument(
         "--fastembed-cache-dir", type=Path, default=Path(".cache")
     )
+    _add_profile_argument(search_parser)
     search_parser.add_argument("--qdrant-host", default="127.0.0.1")
     search_parser.add_argument("--qdrant-port", type=int, default=6333)
-    search_parser.add_argument("--qdrant-collection", default="personas")
+    search_parser.add_argument(
+        "--qdrant-collection", default=None, help=STORE_NAME_HELP
+    )
     search_parser.add_argument("--qdrant-distance", default="Cosine")
     search_parser.add_argument("--es-host", default="127.0.0.1")
     search_parser.add_argument("--es-port", type=int, default=9200)
-    search_parser.add_argument("--es-index", default="personas")
+    search_parser.add_argument("--es-index", default=None, help=STORE_NAME_HELP)
     search_parser.add_argument("--neo4j-host", default="127.0.0.1")
     search_parser.add_argument("--neo4j-port", type=int, default=7474)
     search_parser.add_argument("--neo4j-user", default="neo4j")
@@ -192,12 +205,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "clear-emulators",
         help="Dangerous: drop persona data from local emulator stores",
     )
+    _add_profile_argument(reset_parser)
     reset_parser.add_argument("--qdrant-host", default="127.0.0.1")
     reset_parser.add_argument("--qdrant-port", type=int, default=6333)
-    reset_parser.add_argument("--qdrant-collection", default="personas")
+    reset_parser.add_argument("--qdrant-collection", default=None, help=STORE_NAME_HELP)
     reset_parser.add_argument("--es-host", default="127.0.0.1")
     reset_parser.add_argument("--es-port", type=int, default=9200)
-    reset_parser.add_argument("--es-index", default="personas")
+    reset_parser.add_argument("--es-index", default=None, help=STORE_NAME_HELP)
     reset_parser.add_argument("--neo4j-host", default="127.0.0.1")
     reset_parser.add_argument("--neo4j-port", type=int, default=7474)
     reset_parser.add_argument("--neo4j-user", default="neo4j")
@@ -232,12 +246,27 @@ def _build_parser() -> argparse.ArgumentParser:
     repair_parser.add_argument(
         "--fastembed-cache-dir", type=Path, default=Path(".cache")
     )
+    _add_profile_argument(repair_parser)
     repair_parser.add_argument("--qdrant-host", default="127.0.0.1")
     repair_parser.add_argument("--qdrant-port", type=int, default=6333)
-    repair_parser.add_argument("--qdrant-collection", default="personas")
+    repair_parser.add_argument(
+        "--qdrant-collection", default=None, help=STORE_NAME_HELP
+    )
     repair_parser.add_argument("--qdrant-distance", default="Cosine")
 
     return parser
+
+
+STORE_NAME_HELP = "Defaults to the dataset profile's own store name"
+
+
+def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--dataset-profile",
+        choices=sorted(PROFILES),
+        default=JAPAN.name,
+        help="Dataset to work on; each dataset has its own stores and metadata",
+    )
 
 
 def _parse_ngram_sizes(raw: str) -> tuple[int, ...]:
@@ -257,28 +286,115 @@ def _expand_paths(entries: Iterable[str]) -> list[Path]:
     return expanded
 
 
-def _load_index_metadata() -> dict | None:
-    if not METADATA_PATH.exists():
+def _load_index_metadata(path: Path | None = None) -> dict | None:
+    path = path or METADATA_PATH
+    if not path.exists():
         return None
     try:
-        return json.loads(METADATA_PATH.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         # UnicodeDecodeError covers metadata written by older CLI versions
         # under a non-UTF-8 locale (e.g. cp932 on Japanese Windows).
         return None
 
 
-def _parse_persona_fields(value: str) -> tuple[str, ...]:
+def _profile(args: argparse.Namespace) -> DatasetProfile:
+    return get_profile(getattr(args, "dataset_profile", JAPAN.name))
+
+
+def _resolve_stores(args: argparse.Namespace) -> DatasetProfile:
+    """Fill unset store names from the profile; refuse another dataset's."""
+
+    profile = _profile(args)
+    if args.qdrant_collection is None:
+        args.qdrant_collection = profile.qdrant_collection
+    if getattr(args, "es_index", "") is None:
+        args.es_index = profile.es_index
+    reserved = {
+        name
+        for other in PROFILES.values()
+        if other.name != profile.name
+        for name in (other.qdrant_collection, other.es_index)
+    }
+    for flag, value in (
+        ("--qdrant-collection", args.qdrant_collection),
+        ("--es-index", getattr(args, "es_index", None)),
+    ):
+        if value in reserved:
+            console.print(
+                f"[red]{flag} '{value}' belongs to another dataset profile; "
+                f"'{profile.name}' must not read or write it.[/red]"
+            )
+            raise SystemExit(2)
+    return profile
+
+
+# Search filter flags, keyed by the payload field they filter on.
+FILTER_FLAGS: dict[str, str] = {
+    "prefecture": "--prefecture",
+    "domain": "--domain",
+    "document_type": "--document-type",
+}
+
+
+def _search_filters(
+    args: argparse.Namespace, profile: DatasetProfile
+) -> dict[str, str] | None:
+    filters: dict[str, str] = {}
+    for field, flag in FILTER_FLAGS.items():
+        value = getattr(args, field, None)
+        if value is None:
+            continue
+        if field not in profile.filter_fields:
+            console.print(
+                f"[red]Dataset profile '{profile.name}' does not support the "
+                f"{flag} filter.[/red]"
+            )
+            raise SystemExit(2)
+        filters[field] = value
+    return filters or None
+
+
+def _metadata_path(args: argparse.Namespace) -> Path:
+    profile = _profile(args)
+    collection = getattr(args, "qdrant_collection", None) or profile.qdrant_collection
+    if collection != profile.qdrant_collection:
+        # A custom collection gets its own file, so resetting or clearing it
+        # never drops the metadata of the profile's default index.
+        return METADATA_PATH.with_name(
+            f"index_metadata.{profile.name}.{collection}.json"
+        )
+    if profile.name == JAPAN.name:
+        return METADATA_PATH
+    return METADATA_PATH.with_name(profile.metadata_filename)
+
+
+def _refuse_foreign_metadata(metadata: dict | None, args: argparse.Namespace) -> None:
+    # Metadata written before datasets were split carries no "dataset" key;
+    # only the japan index existed then.
+    recorded = (metadata or {}).get("dataset", JAPAN.name)
+    profile = _profile(args)
+    if metadata and recorded != profile.name:
+        console.print(
+            f"[red]{_metadata_path(args)} describes dataset '{recorded}', not "
+            f"'{profile.name}': refusing to mix datasets.[/red]"
+        )
+        raise SystemExit(2)
+
+
+def _parse_persona_fields(
+    value: str, profile: DatasetProfile = JAPAN
+) -> tuple[str, ...]:
     cleaned = (value or "").strip()
     if not cleaned:
         raise ValueError("Persona fields must not be empty")
     if cleaned.lower() == "all":
-        return PERSONA_TEXT_FIELDS
+        return profile.text_fields
     fields = tuple(part.strip() for part in cleaned.split(",") if part.strip())
     if not fields:
         raise ValueError("Persona fields must not be empty")
     for field in fields:
-        if field not in PERSONA_FIELD_SET:
+        if field not in profile.text_fields:
             raise ValueError(f"Unknown persona field: {field}")
     return fields
 
@@ -287,12 +403,12 @@ def _resolve_persona_fields(
     args: argparse.Namespace,
     *,
     existing_metadata: dict | None = None,
-    default: tuple[str, ...] = DEFAULT_PERSONA_FIELDS,
+    default: tuple[str, ...],
     allow_metadata_default: bool = False,
 ) -> tuple[tuple[str, ...], str | None]:
     note: str | None = None
     if getattr(args, "persona_fields", None) not in (None, ""):
-        fields = _parse_persona_fields(args.persona_fields)
+        fields = _parse_persona_fields(args.persona_fields, _profile(args))
     else:
         metadata_fields = None
         if existing_metadata:
@@ -302,7 +418,7 @@ def _resolve_persona_fields(
         if metadata_fields:
             fields = metadata_fields
             if allow_metadata_default:
-                note = f"Using persona fields {', '.join(fields)} recorded in {METADATA_PATH}"
+                note = f"Using persona fields {', '.join(fields)} recorded in {_metadata_path(args)}"
         else:
             fields = default
     return fields, note
@@ -314,8 +430,10 @@ def _write_index_metadata(
     ngram_sizes = embedder_info.get("ngram_sizes")
     if ngram_sizes is not None and not isinstance(ngram_sizes, list):
         ngram_sizes = list(ngram_sizes)
+    profile = _profile(args)
     data = {
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
+        "dataset": profile.name,
         "embedder": {
             "preset": embedder_info.get("preset"),
             "type": embedder_info.get("type"),
@@ -329,7 +447,7 @@ def _write_index_metadata(
             "persona_fields": embedder_info.get("persona_fields"),
             # Forensic record of how embedding inputs were derived; not
             # part of the reset comparison (migrations run in place).
-            "embedding_text_policy": "strip-person-names-v1",
+            "embedding_text_policy": profile.embedding_text_policy,
         },
         "qdrant": {
             "collection": args.qdrant_collection,
@@ -337,10 +455,9 @@ def _write_index_metadata(
         },
         "schema_version": INDEX_METADATA_SCHEMA_VERSION,
     }
-    METADATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    METADATA_PATH.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    path = _metadata_path(args)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _collect_index_stats(
@@ -385,21 +502,7 @@ def _collect_index_stats(
         stats["elasticsearch_docs"] = -1
 
     try:
-        response = neo4j.transport.request(
-            RequestDescriptor(
-                method="POST",
-                path="/db/neo4j/tx/commit",
-                body={
-                    "statements": [
-                        {
-                            "statement": "MATCH (p:Persona) RETURN count(p)",
-                        }
-                    ]
-                },
-            )
-        )
-        count = response.get("results", [{}])[0].get("data", [{}])[0].get("row", [0])[0]
-        stats["neo4j_nodes"] = int(count)
+        stats["neo4j_nodes"] = neo4j.count_nodes()
     except Exception as exc:  # noqa: BLE001 - any transport error means "unknown"
         console.log(f"[yellow]Neo4j stats unavailable:[/yellow] {exc}")
         stats["neo4j_nodes"] = -1
@@ -464,7 +567,7 @@ def _reset_indexes(
         console.log(f"[yellow]Neo4j reset skipped:[/yellow] {exc}")
 
     try:
-        METADATA_PATH.unlink()
+        _metadata_path(args).unlink()
     except FileNotFoundError:
         pass
 
@@ -485,7 +588,7 @@ def _build_embedder(
     preset_name = args.embedder
     metadata = None
     if preset_name is None:
-        metadata = _load_index_metadata()
+        metadata = _load_index_metadata(_metadata_path(args))
         embed_info = (metadata or {}).get("embedder") if metadata else None
         if embed_info:
             preset_name = embed_info.get("preset")
@@ -506,7 +609,7 @@ def _build_embedder(
                     args.ngram_sizes = ",".join(
                         str(n) for n in embed_info["ngram_sizes"]
                     )
-            metadata_note = f"Using embedder preset '{preset_name or embedder_type}' recorded in {METADATA_PATH}"
+            metadata_note = f"Using embedder preset '{preset_name or embedder_type}' recorded in {_metadata_path(args)}"
         else:
             preset_name = "hashed"
 
@@ -564,16 +667,19 @@ def _build_embedder(
 
 
 def _run_index(args: argparse.Namespace) -> None:
+    profile = _resolve_stores(args)
     dataset_paths = _expand_paths(args.dataset)
     console.log(f"Resolved {len(dataset_paths)} dataset path(s)")
 
-    existing_metadata = _load_index_metadata()
+    metadata_path = _metadata_path(args)
+    existing_metadata = _load_index_metadata(metadata_path)
+    _refuse_foreign_metadata(existing_metadata, args)
     persona_fields, _persona_note = _resolve_persona_fields(
-        args, existing_metadata=existing_metadata, default=("persona",)
+        args, existing_metadata=existing_metadata, default=(profile.summary_field,)
     )
     args._persona_fields_resolved = persona_fields
 
-    repository = PersonaRepository(dataset_paths)
+    repository = PersonaRepository(dataset_paths, profile=profile)
     embedder, embedder_info, _ = _build_embedder(args)
     embedder_info["persona_fields"] = list(persona_fields)
 
@@ -585,13 +691,14 @@ def _run_index(args: argparse.Namespace) -> None:
         distance=args.qdrant_distance,
     )
     elastic = ElasticsearchService(
-        host=args.es_host, port=args.es_port, index=args.es_index
+        host=args.es_host, port=args.es_port, index=args.es_index, profile=profile
     )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
         user=args.neo4j_user,
         password=args.neo4j_password,
+        profile=profile,
     )
 
     before_stats, _before_meta = _collect_index_stats(qdrant, elastic, neo4j)
@@ -601,7 +708,7 @@ def _run_index(args: argparse.Namespace) -> None:
         # different model; refuse and route through the verified repair.
         console.print(
             f"[red]Collection '{args.qdrant_collection}' already holds "
-            f"{before_stats['qdrant_points']} points but {METADATA_PATH} is "
+            f"{before_stats['qdrant_points']} points but {metadata_path} is "
             "missing. Run 'repair-metadata --embedder <preset>' to re-record "
             "the embedder that built it (or clear-emulators for a full "
             "rebuild).[/red]"
@@ -629,6 +736,7 @@ def _run_index(args: argparse.Namespace) -> None:
         repository=repository,
         embedder=embedder,
         persona_fields=persona_fields,
+        profile=profile,
         qdrant=qdrant,
         elasticsearch=elastic,
         neo4j=neo4j,
@@ -664,17 +772,21 @@ def _is_usable_metadata(metadata: dict | None) -> bool:
 
 
 def _run_search(args: argparse.Namespace) -> None:
-    existing_metadata = _load_index_metadata()
+    profile = _resolve_stores(args)
+    filters = _search_filters(args, profile)
+    metadata_path = _metadata_path(args)
+    existing_metadata = _load_index_metadata(metadata_path)
+    _refuse_foreign_metadata(existing_metadata, args)
     if args.embedder is None and not _is_usable_metadata(existing_metadata):
         # The hashed default would not match an index built by any other
         # embedder; without usable metadata the right preset is unknowable.
         reason = (
             "not found"
-            if not METADATA_PATH.exists()
+            if not metadata_path.exists()
             else "unusable (stale schema or missing embedder info)"
         )
         console.print(
-            f"[red]Index metadata {METADATA_PATH} is {reason}: cannot infer the "
+            f"[red]Index metadata {metadata_path} is {reason}: cannot infer the "
             "embedder that built the index. Pass --embedder explicitly, or run "
             "'repair-metadata --embedder <preset>' to re-record it.[/red]"
         )
@@ -682,7 +794,7 @@ def _run_search(args: argparse.Namespace) -> None:
     persona_fields, persona_note = _resolve_persona_fields(
         args,
         existing_metadata=existing_metadata,
-        default=("persona",),
+        default=(profile.summary_field,),
         allow_metadata_default=True,
     )
     args._persona_fields_resolved = persona_fields
@@ -696,13 +808,14 @@ def _run_search(args: argparse.Namespace) -> None:
         distance=args.qdrant_distance,
     )
     elastic = ElasticsearchService(
-        host=args.es_host, port=args.es_port, index=args.es_index
+        host=args.es_host, port=args.es_port, index=args.es_index, profile=profile
     )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
         user=args.neo4j_user,
         password=args.neo4j_password,
+        profile=profile,
     )
 
     service = PersonaSearchService(
@@ -711,6 +824,7 @@ def _run_search(args: argparse.Namespace) -> None:
         elasticsearch=elastic,
         neo4j=neo4j,
         persona_fields=persona_fields,
+        profile=profile,
     )
     notes = []
     if metadata_note and args.embedder is None:
@@ -724,15 +838,13 @@ def _run_search(args: argparse.Namespace) -> None:
             args.query,
             limit=args.limit,
             return_stats=True,
-            prefecture=args.prefecture,
+            filters=filters,
         )
         console.print(
             f"[dim]Qdrant candidates: {stats['vector_hits']} | Elasticsearch hits: {stats['keyword_hits']} | Context lookups: {stats['context_calls']}[/dim]"
         )
     else:
-        results = service.search(
-            args.query, limit=args.limit, prefecture=args.prefecture
-        )
+        results = service.search(args.query, limit=args.limit, filters=filters)
         stats = None
     if args.format == "json":
         console.print_json(json.dumps(results, ensure_ascii=False))
@@ -745,8 +857,8 @@ def _run_search(args: argparse.Namespace) -> None:
     table = Table(title="Search Results", show_lines=True)
     table.add_column("UUID", overflow="fold", max_width=40)
     table.add_column("Score", justify="right")
-    table.add_column("Prefecture")
-    table.add_column("Region")
+    for field in profile.payload_fields:
+        table.add_column(field.replace("_", " ").title())
 
     include_combined = len(persona_fields) > 1
     if include_combined:
@@ -762,8 +874,7 @@ def _run_search(args: argparse.Namespace) -> None:
         row = [
             str(entry.get("uuid", "")),
             f"{entry.get('score', 0.0):.4f}",
-            entry.get("prefecture") or "",
-            entry.get("region") or "",
+            *(entry.get(field) or "" for field in profile.payload_fields),
         ]
         combined_text = (entry.get("text") or "").strip()
         if include_combined:
@@ -802,7 +913,8 @@ def _run_repair_metadata(args: argparse.Namespace) -> None:
     is taken on the operator's word.
     """
 
-    persona_fields = _parse_persona_fields(args.persona_fields)
+    profile = _resolve_stores(args)
+    persona_fields = _parse_persona_fields(args.persona_fields, profile)
     embedder, embedder_info, _ = _build_embedder(args)
     embedder_info["persona_fields"] = list(persona_fields)
 
@@ -864,13 +976,15 @@ def _run_repair_metadata(args: argparse.Namespace) -> None:
     _write_index_metadata(embedder_info, args, embedder)
     console.print(
         f"[green]Recorded metadata for '{args.qdrant_collection}' "
-        f"({points} points, dim {embedder.dimension}) → {METADATA_PATH}[/green]"
+        f"({points} points, dim {embedder.dimension}) → {_metadata_path(args)}[/green]"
     )
 
 
 def _run_clear_emulators(args: argparse.Namespace) -> None:
+    profile = _resolve_stores(args)
     console.print(
-        "[bold red]Warning:[/bold red] This command will remove persona data from local emulators."
+        f"[bold red]Warning:[/bold red] This command will remove the '{profile.name}' "
+        "dataset's data from local emulators."
     )
     if not _confirm_reset():
         console.print("[yellow]Clear operation aborted.[/yellow]")
@@ -883,13 +997,14 @@ def _run_clear_emulators(args: argparse.Namespace) -> None:
         vector_size=1,
     )
     elastic = ElasticsearchService(
-        host=args.es_host, port=args.es_port, index=args.es_index
+        host=args.es_host, port=args.es_port, index=args.es_index, profile=profile
     )
     neo4j = Neo4jService(
         host=args.neo4j_host,
         port=args.neo4j_port,
         user=args.neo4j_user,
         password=args.neo4j_password,
+        profile=profile,
     )
     _reset_indexes(qdrant, elastic, neo4j, args)
     console.print("[green]Local emulator stores cleared.[/green]")

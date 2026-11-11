@@ -36,7 +36,7 @@ def test_cli_index_invokes_indexer(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["paths"] = list(paths)
 
         def iter_personas(
@@ -99,7 +99,7 @@ def test_cli_search_outputs_results(
             limit: int,
             *,
             return_stats: bool = False,
-            prefecture: str | None = None,
+            filters: dict[str, str] | None = None,
         ):
             results = [
                 {
@@ -160,7 +160,7 @@ def test_cli_search_verbose_outputs_logs(
             limit: int,
             *,
             return_stats: bool = False,
-            prefecture: str | None = None,
+            filters: dict[str, str] | None = None,
         ):
             results = [
                 {
@@ -242,7 +242,7 @@ def test_cli_index_sentence_embedder(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["paths"] = list(paths)
 
         def iter_personas(
@@ -323,7 +323,7 @@ def test_cli_index_fast_embedder(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["paths"] = list(paths)
 
         def iter_personas(
@@ -427,7 +427,7 @@ def test_cli_index_prompt_reset_decline(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["paths"] = list(paths)
 
         def iter_personas(
@@ -499,7 +499,7 @@ def test_cli_index_prompt_reset_accept(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["paths"] = list(paths)
 
         def iter_personas(
@@ -624,7 +624,7 @@ def test_cli_index_persists_metadata_when_reset_confirmed(
     )
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             pass
 
         def iter_personas(self, limit: int | None = None):  # pragma: no cover
@@ -715,9 +715,9 @@ def test_cli_search_passes_prefecture_filter(
             limit: int,
             *,
             return_stats: bool = False,
-            prefecture: str | None = None,
+            filters: dict[str, str] | None = None,
         ):
-            captured["prefecture"] = prefecture
+            captured["filters"] = filters
             return []
 
     monkeypatch.setattr(cli, "PersonaSearchService", FakeSearchService)
@@ -740,7 +740,7 @@ def test_cli_search_passes_prefecture_filter(
         ]
     )
 
-    assert captured["prefecture"] == "北海道"
+    assert captured["filters"] == {"prefecture": "北海道"}
 
 
 def test_cli_search_rejects_colloquial_prefecture(

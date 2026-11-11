@@ -1,6 +1,6 @@
 # Handover
 
-**Last updated:** 2026-08-27 (JST)
+**Last updated:** 2026-11-11 (JST)
 **Updated by:** claude (AI session, Windows workstation)
 
 ## Current State
@@ -142,8 +142,25 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   panel selection. `marimo/catalog_snapshot.json` was already
   regenerated in #49.
 
+- **#101 finance + pii datasets**: `nvidia/Nemotron-Personas-Finance-Japan` (c73cc86) and
+  `nvidia/Nemotron-PII-Japan` (a074898) are Git LFS submodules under
+  `datasets/`, and both are **fully indexed in their own stores**:
+  finance 1,000,000×3 (`finance_personas` / `FinancePersona`), pii
+  100,000×3 (`pii_documents` / `PiiDocument`). Every store request goes
+  through a dataset profile (`--dataset-profile`, `just profile=...`;
+  ADR 0004), with guards against mixing datasets. intent.md was updated
+  with the requester's approval (personal research). Baselines: finance
+  golden basic 0.457 / hard 0.425 / recall 0.91 / 1.00; pii basic 0.900 /
+  hard 0.880 / value lookup 0.875 / 1.00; canaries OK for all three. The
+  japan index is proven unchanged (store fingerprints and eval identical
+  before and after). Details:
+  `docs/research/2026-11-11-finance-pii-baseline.md`.
+
 ## In Progress
-Nothing in flight.
+Nothing in flight. The finance / pii work landed as PR #101 (squash
+merge approved by the owner). The pre-indexing volume backup was deleted
+after japan was verified unchanged. The emulators are stopped; their
+volumes hold all three indexes (`cd emulator && docker compose up -d`).
 
 ## Next Actions
 1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
@@ -160,17 +177,29 @@ Nothing in flight.
    is 19/24 under CJK unigram BM25 — e.g. an extracted-name keyword
    field).
 4. Metadata robustness candidates (structural, separate work unit, from
-   the plan review): identity-keyed metadata (record/verify Qdrant
-   endpoint+collection, per-identity files instead of one global
-   CWD-relative file), atomic writes, and clear-emulators unlinking the
-   global metadata even when pointed at a non-default collection.
+   the plan review): atomic writes and recording the Qdrant endpoint.
+   (Per-dataset and per-collection metadata files, and clear-emulators
+   no longer unlinking the default metadata for a custom collection, are
+   done.)
 5. Tooling candidate (from the plan review): this repo has no `just check`
    aggregate gate and no mypy/semgrep; the enforced gate today is
    `just pre-commit` + `just test` (mirrors CI). Adding the full AGENTS.md
    gate is a separate structural PR.
-6. Housekeeping (optional): regenerate `marimo/catalog_snapshot.json` after
-   any reindex; Docker Desktop's WSL2 vhdx grows with the ~15GB of volume
-   data and does not shrink automatically.
+6. Housekeeping (optional): regenerate `marimo/catalog_snapshot*.json`
+   (`just profile=<name> catalog-snapshot`) after any reindex; Docker
+   Desktop's WSL2 vhdx grows with the ~27 GB of volume data and does not
+   shrink automatically.
+7. Owner decisions (open, in `docs/decision-queue.md`): finance / pii
+   quality bars, and whether pii should mask PII spans in the embedding
+   input.
+8. finance quality candidates (each its own work unit, evidence in the
+   2026-11-11 research doc): a vector-leaning RRF weight A/B for finance
+   (vector-only beats fused on several queries), and moving person names
+   out of the BM25 text (the keyword leg matched 奨太 for 奨学金).
+9. Containers: the global rules require Podman 5+; this machine has only
+   Docker Desktop, which the owner allowed for this session only.
+   Migrating the emulator stack (and the ~27 GB of volumes) to Podman is
+   an open work unit.
 
 ## Known Risks / Blockers
 - On this machine `uv run`/`uv lock` **without** `--frozen`/`UV_NO_CONFIG=1`
@@ -191,14 +220,24 @@ Nothing in flight.
   (`download-dataset`); the current `qa_samples/qa_sample.parquet` was cut
   directly from shard 0 of the submodule (all 8 LFS shards are pulled,
   ~1.7GB).
+- GPU sharing: a vLLM server (Qwen3.8-27B) in WSL Ubuntu holds most of
+  the RTX 4090. Embedding speed swung between 35 and 130 docs/s, and the
+  finance full index took 151 min (japan took ~50 min alone).
+- Disk: C: is at 91% (173 GB free) with all three indexes in the
+  emulator volumes (~27 GB).
 
 ## Context the Next Actor Needs
 - Emulators are vendored at `emulator/compose.yaml`; ports/auth match
   `ApplicationConfig`. The canonical full kit lives at `~/dotfiles/emulator`
   (upstream `github.com/hironow/emulator-set`).
-- The **full corpus is indexed and persistent** — day-to-day work does not
-  need reindexing. A full rebuild is `just full-index` (~50min on the RTX
-  4090); a failed run resumes by rerunning the failed shard only.
+- **All three datasets are indexed and persistent** — day-to-day work
+  does not need reindexing. A full rebuild is `just full-index` (~50 min
+  on the RTX 4090) or `just profile=<finance|pii> full-index`; a failed
+  run resumes by rerunning the failed shard only.
+- Recipe arguments are positional (`just qa-index ruri-v3-310m`); only the
+  top-level `profile` variable takes `name=value`.
+- Before touching one dataset's stores for real, take
+  `just profile=<other> store-fingerprint` and compare it afterwards.
 - Switching embedder presets triggers a confirmed reset (dimensions change);
   the reset deletes Neo4j personas in batched transactions and persists the
   new metadata immediately.
@@ -216,4 +255,8 @@ Nothing in flight.
 - `just full-index` — shard-by-shard full-corpus ingest
 - `just qa` — 1k smoke (mini-lm); `just test` / `just integration`
 - `just notebook` — marimo catalog (`marimo/catalog.py` +
-  `marimo/catalog_snapshot.json`)
+  `marimo/catalog_snapshot*.json`, dataset selector)
+- `search_ja_persona/dataset_profiles.py` — per-dataset fields and stores
+- `docs/research/2026-11-11-finance-pii-baseline.md` — finance / pii
+  baselines and the japan-unchanged evidence
+- `just store-fingerprint` — read-only before/after check of one dataset

@@ -16,7 +16,8 @@ uuid overlap between the fused and keyword top-k, plus the fused top-k
 snippets with per-hit predicate verdicts for human review.
 
 Usage:
-    uv run --frozen python -m scripts.diagnose_golden [--k 5] [--random-samples 200]
+    uv run --frozen python -m scripts.diagnose_golden [--dataset-profile finance]
+        [--k 5] [--random-samples 200]
 """
 
 from __future__ import annotations
@@ -32,22 +33,36 @@ from uuid import UUID
 
 import pyarrow.parquet as pq
 
+from scripts.evaluate_search import golden_path
 from search_ja_persona.application import ApplicationConfig, PersonaApplication
+from search_ja_persona.dataset_profiles import (
+    JAPAN,
+    PROFILES,
+    DatasetProfile,
+    get_profile,
+)
 from search_ja_persona.evaluation import (
     load_golden_queries,
     matches_expectation,
     precision_at_k,
 )
-from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
 
-GOLDEN_PATH = Path(__file__).with_name("golden_queries.json")
-RANDOM_SHARD = Path(
-    "datasets/Nemotron-Personas-Japan/data/train-00000-of-00008.parquet"
-)
+
+def random_source(profile: DatasetProfile) -> Path:
+    """The dataset's first source file (shard 0, or pii's data.parquet)."""
+
+    sources = sorted(Path(profile.source_dir).glob("*.parquet"))
+    return sources[0] if sources else Path(profile.source_dir) / "missing.parquet"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Diagnose golden-set predicates")
+    parser.add_argument(
+        "--dataset-profile",
+        choices=sorted(PROFILES),
+        default=JAPAN.name,
+        help="Dataset whose index and golden set to evaluate",
+    )
     parser.add_argument("--embedder", default="ruri-v3-310m")
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument(
@@ -78,8 +93,7 @@ def _vector_results(
             {
                 "uuid": hit.get("id"),
                 "text": payload.get("text"),
-                "prefecture": payload.get("prefecture"),
-                "region": payload.get("region"),
+                **{field: payload.get(field) for field in app.profile.payload_fields},
             }
         )
     return results
@@ -96,32 +110,30 @@ def _keyword_results(
             {
                 "uuid": hit.get("_id"),
                 "text": source.get("text"),
-                "prefecture": source.get("prefecture"),
-                "region": source.get("region"),
+                **{field: source.get(field) for field in app.profile.payload_fields},
             }
         )
     return results
 
 
-def _random_pool(samples: int, seed: int) -> list[dict[str, Any]]:
-    # Mirror index-time aggregation: text is the "\n\n" join of the six
-    # persona fields (see PersonaIndexer._compose_text).
-    columns = [*PERSONA_TEXT_FIELDS, "prefecture", "region"]
-    table = pq.read_table(RANDOM_SHARD, columns=columns)
+def random_pool(
+    profile: DatasetProfile, source: Path, *, samples: int, seed: int
+) -> list[dict[str, Any]]:
+    # Mirror index-time aggregation: text is the "\n\n" join of the
+    # profile's text fields (see PersonaIndexer._compose_text).
+    to_source = {record: column for column, record in profile.source_renames}
+    fields = [*profile.text_fields, *profile.payload_fields]
+    table = pq.read_table(source, columns=[to_source.get(f, f) for f in fields])
     rng = random.Random(seed)
     rows = rng.sample(range(table.num_rows), samples)
     pool: list[dict[str, Any]] = []
     for row in rows:
-        texts = [
-            value
-            for field in PERSONA_TEXT_FIELDS
-            if (value := table.column(field)[row].as_py())
-        ]
+        values = {f: table.column(to_source.get(f, f))[row].as_py() for f in fields}
+        texts = [value for f in profile.text_fields if (value := values[f])]
         pool.append(
             {
                 "text": "\n\n".join(texts),
-                "prefecture": table.column("prefecture")[row].as_py(),
-                "region": table.column("region")[row].as_py(),
+                **{f: values[f] for f in profile.payload_fields},
             }
         )
     return pool
@@ -133,11 +145,19 @@ def _snippet(text: object) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    golden = load_golden_queries(GOLDEN_PATH)
-    app = PersonaApplication.build(ApplicationConfig(embedder=args.embedder))
-    pool = _random_pool(args.random_samples, args.seed) if RANDOM_SHARD.exists() else []
+    profile = get_profile(args.dataset_profile)
+    golden = load_golden_queries(golden_path(profile), profile=profile)
+    app = PersonaApplication.build(
+        ApplicationConfig(embedder=args.embedder, dataset_profile=profile.name)
+    )
+    source = random_source(profile)
+    pool = (
+        random_pool(profile, source, samples=args.random_samples, seed=args.seed)
+        if source.exists()
+        else []
+    )
     if not pool:
-        print(f"random baseline skipped: {RANDOM_SHARD} not found")
+        print(f"random baseline skipped: {source} not found")
 
     rows: list[dict[str, Any]] = []
     started = time.perf_counter()
@@ -153,9 +173,7 @@ def main(argv: list[str] | None = None) -> None:
         filters = entry.get("filters")
         filtered_rate = None
         if filters is not None:
-            filtered_hits = app.search(
-                query, limit=args.k, prefecture=filters["prefecture"]
-            )
+            filtered_hits = app.search(query, limit=args.k, filters=filters)
             filtered_rate = precision_at_k(filtered_hits, expect, k=args.k)
         overlap = (
             len(
@@ -177,7 +195,7 @@ def main(argv: list[str] | None = None) -> None:
                 "fused_hits": [
                     {
                         "uuid": _hex(hit.get("uuid")),
-                        "prefecture": hit.get("prefecture"),
+                        **{f: hit.get(f) for f in profile.payload_fields},
                         "matched": matches_expectation(hit, expect),
                         "snippet": _snippet(hit.get("text")),
                     }
@@ -215,6 +233,7 @@ def main(argv: list[str] | None = None) -> None:
 
     report = {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "dataset": profile.name,
         "embedder": args.embedder,
         "k": args.k,
         "random_samples": len(pool),
@@ -225,7 +244,7 @@ def main(argv: list[str] | None = None) -> None:
     out_dir = Path("outputs")
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    out_path = out_dir / f"golden_diagnose-{stamp}.json"
+    out_path = out_dir / f"golden_diagnose-{profile.name}-{stamp}.json"
     out_path.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .dataset_profiles import DatasetProfile, get_profile
 from .embeddings import (
     EMBEDDER_PRESETS,
     FastEmbedder,
@@ -12,7 +13,6 @@ from .embeddings import (
     SentenceTransformerEmbedder,
 )
 from .indexer import PersonaIndexer
-from .persona_fields import PERSONA_TEXT_FIELDS
 from .repository import PersonaRepository
 from .search import DEFAULT_RRF_WEIGHTS, PersonaSearchService
 from .services import ElasticsearchService, Neo4jService, QdrantService
@@ -20,18 +20,23 @@ from .services import ElasticsearchService, Neo4jService, QdrantService
 
 @dataclass(frozen=True)
 class ApplicationConfig:
-    """Configuration covering vectorizer and emulator endpoints."""
+    """Configuration covering vectorizer and emulator endpoints.
 
+    ``qdrant_collection``, ``es_index``, and ``persona_fields`` default to
+    the dataset profile's own collection, index, and text fields.
+    """
+
+    dataset_profile: str = "japan"
     # 127.0.0.1 instead of "localhost": Windows resolves localhost to ::1
     # first, and the emulators bind IPv4 loopback only, so every request
     # would stall in the IPv6 connect attempt before falling back.
     qdrant_host: str = "127.0.0.1"
     qdrant_port: int = 6333
-    qdrant_collection: str = "personas"
+    qdrant_collection: str | None = None
     qdrant_distance: str = "Cosine"
     es_host: str = "127.0.0.1"
     es_port: int = 9200
-    es_index: str = "personas"
+    es_index: str | None = None
     neo4j_host: str = "127.0.0.1"
     neo4j_port: int = 7474
     neo4j_user: str = "neo4j"
@@ -43,7 +48,7 @@ class ApplicationConfig:
     sentence_device: str | None = None
     normalize_embeddings: bool = True
     fastembed_cache_dir: str | None = ".cache"
-    persona_fields: tuple[str, ...] = PERSONA_TEXT_FIELDS
+    persona_fields: tuple[str, ...] | None = None
     rrf_weights: tuple[float, float] = DEFAULT_RRF_WEIGHTS
 
 
@@ -52,6 +57,7 @@ class PersonaApplication:
     """High-level orchestration helpers for indexing and search flows."""
 
     config: ApplicationConfig
+    profile: DatasetProfile
     embedder: HashedNgramEmbedder | SentenceTransformerEmbedder | FastEmbedder
     qdrant: QdrantService
     elasticsearch: ElasticsearchService
@@ -60,6 +66,7 @@ class PersonaApplication:
 
     @classmethod
     def build(cls, config: ApplicationConfig) -> PersonaApplication:
+        profile = get_profile(config.dataset_profile)
         embedder: HashedNgramEmbedder | SentenceTransformerEmbedder | FastEmbedder
         preset = EMBEDDER_PRESETS.get(config.embedder)
         if preset:
@@ -96,22 +103,24 @@ class PersonaApplication:
         qdrant = QdrantService(
             host=config.qdrant_host,
             port=config.qdrant_port,
-            collection=config.qdrant_collection,
+            collection=config.qdrant_collection or profile.qdrant_collection,
             vector_size=embedder.dimension,
             distance=config.qdrant_distance,
         )
         elasticsearch = ElasticsearchService(
             host=config.es_host,
             port=config.es_port,
-            index=config.es_index,
+            index=config.es_index or profile.es_index,
+            profile=profile,
         )
         neo4j = Neo4jService(
             host=config.neo4j_host,
             port=config.neo4j_port,
             user=config.neo4j_user,
             password=config.neo4j_password,
+            profile=profile,
         )
-        persona_fields = config.persona_fields or PERSONA_TEXT_FIELDS
+        persona_fields = config.persona_fields or profile.text_fields
         search_service = PersonaSearchService(
             embedder=embedder,
             qdrant=qdrant,
@@ -119,9 +128,11 @@ class PersonaApplication:
             neo4j=neo4j,
             persona_fields=persona_fields,
             rrf_weights=config.rrf_weights,
+            profile=profile,
         )
         return cls(
             config=config,
+            profile=profile,
             embedder=embedder,
             qdrant=qdrant,
             elasticsearch=elasticsearch,
@@ -137,11 +148,12 @@ class PersonaApplication:
         limit: int | None = None,
     ) -> None:
         paths = self._expand_dataset_paths(dataset_entries)
-        repository = PersonaRepository(paths)
+        repository = PersonaRepository(paths, profile=self.profile)
         indexer = PersonaIndexer(
             repository=repository,
             embedder=self.embedder,
-            persona_fields=self.config.persona_fields or PERSONA_TEXT_FIELDS,
+            persona_fields=self.config.persona_fields or self.profile.text_fields,
+            profile=self.profile,
             qdrant=self.qdrant,
             elasticsearch=self.elasticsearch,
             neo4j=self.neo4j,
@@ -149,9 +161,13 @@ class PersonaApplication:
         indexer.index(batch_size=batch_size, limit=limit)
 
     def search(
-        self, query: str, *, limit: int = 5, prefecture: str | None = None
+        self,
+        query: str,
+        *,
+        limit: int = 5,
+        filters: Mapping[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        return self.search_service.search(query, limit=limit, prefecture=prefecture)
+        return self.search_service.search(query, limit=limit, filters=filters)
 
     @staticmethod
     def _expand_dataset_paths(entries: Iterable[str | Path]) -> list[Path]:

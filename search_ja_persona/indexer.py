@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .dataset_profiles import JAPAN, STRIP_PERSON_NAMES, DatasetProfile
 from .embeddings import Embedder
 from .name_stripping import strip_person_names
 from .persona_fields import PERSONA_TEXT_FIELDS
@@ -18,10 +19,12 @@ class PersonaIndexer:
     elasticsearch: ElasticsearchService
     neo4j: Neo4jService
     persona_fields: tuple[str, ...] = PERSONA_TEXT_FIELDS
+    profile: DatasetProfile = JAPAN
 
     def index(self, *, batch_size: int = 64, limit: int | None = None) -> None:
         self.qdrant.ensure_collection()
-        self.qdrant.ensure_payload_index()
+        for field_name in self.profile.filter_fields:
+            self.qdrant.ensure_payload_index(field_name)
         self.elasticsearch.ensure_index()
         self.neo4j.ensure_constraints()
 
@@ -48,7 +51,7 @@ class PersonaIndexer:
         # the stored text keeps them for BM25 lookup and display.
         vectors = self.embedder.embed_documents(
             [
-                "\n\n".join(text for text in strip_person_names(field_texts) if text)
+                "\n\n".join(text for text in self._embedding_texts(field_texts) if text)
                 for _, _, field_texts in composed
             ]
         )
@@ -74,17 +77,14 @@ class PersonaIndexer:
         per_field: dict[str, str],
         vector: list[float],
     ) -> dict:
-        return {
-            "id": persona["uuid"],
-            "vector": vector,
-            "payload": {
-                "uuid": persona.get("uuid"),
-                "text": aggregated_text,
-                "persona_fields": per_field,
-                "prefecture": persona.get("prefecture"),
-                "region": persona.get("region"),
-            },
+        payload: dict[str, Any] = {
+            "uuid": persona.get("uuid"),
+            "text": aggregated_text,
+            "persona_fields": per_field,
         }
+        for field in self.profile.payload_fields:
+            payload[field] = persona.get(field)
+        return {"id": persona["uuid"], "vector": vector, "payload": payload}
 
     def _build_elasticsearch_document(
         self, persona: dict, aggregated_text: str, per_field: dict[str, str]
@@ -92,12 +92,17 @@ class PersonaIndexer:
         document: dict[str, Any] = {
             "uuid": persona.get("uuid"),
             "text": aggregated_text,
-            "prefecture": persona.get("prefecture"),
-            "region": persona.get("region"),
         }
+        for field in self.profile.payload_fields:
+            document[field] = persona.get(field)
         for field in self.persona_fields:
             document[field] = per_field.get(field)
         return document
+
+    def _embedding_texts(self, field_texts: list[str]) -> list[str]:
+        if self.profile.embedding_text_policy == STRIP_PERSON_NAMES:
+            return strip_person_names(field_texts)
+        return field_texts
 
     def _compose_text(self, persona: dict) -> tuple[str, dict[str, str], list[str]]:
         per_field: dict[str, str] = {}

@@ -1,18 +1,23 @@
 # Intent
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-11-11
 **Requester:** hironow
-**Status:** Approved — 2026-08-27 に requester がセッション内で承認（初稿は AI が README / git 履歴から起草）
+**Status:** Approved — 2026-08-27 に requester がセッション内で承認（初稿は AI が README / git 履歴から起草）。2026-11-11 の Finance / PII 追記も requester がセッション内で承認
 **Work unit:** search-ja-persona — CLI tooling for indexing and searching the Nemotron Personas Japan dataset with local emulators
 
 ## Goal
 [Nemotron Personas Japan](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Japan) の全量（1,000,000 件）をローカル emulator 群 — Qdrant (vector), Elasticsearch (keyword), Neo4j (persona graph context) — にインデックスし、日本語で高品質に検索・活用（ペルソナパネル調査を含む）できる自己完結環境を維持する。
 
+加えて [Nemotron-Personas-Finance-Japan](https://huggingface.co/datasets/nvidia/Nemotron-Personas-Finance-Japan)（1,000,000 件）と [Nemotron-PII-Japan](https://huggingface.co/datasets/nvidia/Nemotron-PII-Japan)（100,000 文書）を、データセットごとに独立したストアで、上と同じく索引・検索・評価できるようにする。用途は requester 個人の研究。
+
 ## Success Criteria
 - Unit test suite under `tests/` passes (`just test`).
 - Integration tests against running emulators pass (`just integration`, `tests/test_integration_emulators.py`).
 - The QA flow works end-to-end on the locally generated 1k sample (`just qa-sample`; git-ignored, not checked in): `just qa` (= `qa-index` + `qa-search`) returns results for the default Japanese query.
-- 検索品質バー（`just eval --check-thresholds` で機械強制）: golden mean precision@5（basic tier）**≥ 0.85**、hard tier **≥ 0.55**、filtered geo mean **≥ 0.90**、self-retrieval recall@1 **≥ 0.90**、recall@10 **≥ 0.99** を維持する。hard / filtered geo バーは 2026-08-27 の golden 保守再基準化（0.650 / 0.950）を受けて requester が裁定。併せて無言死カナリア 3 本 — 3 ストア件数一致・graph context 被覆率 **≥ 0.99**・keyword レグ寄与 **> 0** — も同日裁定で機械強制（ベースライン: 1M×3 一致 / 1.00 / 1.00）。recall@1 バーは 2026-08-27 に requester 裁定で 0.99 から改定 — 人名除外埋め込み（匿名化ベクトルは同質ペルソナを意図的に等価へ寄せるため、名前入り本人要約での 1 位は保証対象外、top-10 内は保証）。ベースライン（2026-08-27 golden 保守後）: basic 0.917 / recall 0.92 / 1.00 — `docs/research/2026-08-27-golden-maintenance.md` 参照。
+- finance / pii の全量索引で 3 ストアの件数が一致する（1,000,000×3 / 100,000×3）。
+- 全データセットでカナリア 3 本（3 ストア件数一致・graph context 被覆率 ≥ 0.99・keyword レグ寄与 > 0）が通る（`just profile=<name> eval --check-thresholds`）。
+- finance / pii の操作（索引・検索・消去）が V1 の索引とメタデータを変えない。
+- 検索品質バー（V1、`just eval --check-thresholds` で機械強制）: golden mean precision@5（basic tier）**≥ 0.85**、hard tier **≥ 0.55**、filtered geo mean **≥ 0.90**、self-retrieval recall@1 **≥ 0.90**、recall@10 **≥ 0.99** を維持する。hard / filtered geo バーは 2026-08-27 の golden 保守再基準化（0.650 / 0.950）を受けて requester が裁定。併せて無言死カナリア 3 本 — 3 ストア件数一致・graph context 被覆率 **≥ 0.99**・keyword レグ寄与 **> 0** — も同日裁定で機械強制（ベースライン: 1M×3 一致 / 1.00 / 1.00）。recall@1 バーは 2026-08-27 に requester 裁定で 0.99 から改定 — 人名除外埋め込み（匿名化ベクトルは同質ペルソナを意図的に等価へ寄せるため、名前入り本人要約での 1 位は保証対象外、top-10 内は保証）。ベースライン（2026-08-27 golden 保守後）: basic 0.917 / recall 0.92 / 1.00 — `docs/research/2026-08-27-golden-maintenance.md` 参照。
 
 ## Scope
 ### In scope
@@ -23,8 +28,10 @@
 - Search-quality benchmark: `just eval`（golden precision@k + self-retrieval recall@k）。
 - marimo notebooks: feature catalog（`just notebook`）と persona panel（`just panel` / `panel-app` — 上位 M 件へのマルチモーダル質問と JSONL 出力）。
 - Architecture documentation in `docs/architecture.md` and ADRs in `docs/adr/`.
+- データセットプロファイル（`--dataset-profile`、`just profile=...`）: japan / finance / pii がそれぞれ専用の Qdrant collection・Elasticsearch index・Neo4j ラベル・メタデータを持つ。finance の persona panel。
 
 ### Out of scope (Non-goals)
+- pii の persona panel（ペルソナではないため）。
 - The full emulator-set kit: this repo vendors only a minimal three-service subset (`emulator/compose.yaml`, ADR 0001 — Qdrant/Elasticsearch/Neo4j); the canonical multi-emulator kit lives upstream at `github.com/hironow/emulator-set`.
 
 ## Constraints
@@ -36,3 +43,4 @@
 - [x] Search relevance targets — `just eval` のしきい値（precision@5 ≥ 0.85 / recall@1 ≥ 0.99）として Success Criteria に確定。
 - [x] CI: resolved — `.github/workflows/ci.yaml` runs prek hooks + unit tests on ubuntu, plus a windows-latest unit-test leg.
 - [x] Intended audience / downstream use — 第一用途はローカルでのペルソナ探索と、ペルソナなりきりパネル調査（JSONL 出力を下流分析に供する）。
+- [ ] finance / pii の品質バー（ベースライン測定後に requester が裁定）。

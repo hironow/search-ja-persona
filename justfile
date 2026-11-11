@@ -5,6 +5,15 @@ set shell := ["bash", "-cu"]
 
 default: help
 
+# Dataset the qa-* / full-index recipes work on: japan (default), finance,
+# or pii, e.g. `just profile=finance qa`. Each dataset has its own stores
+# (search_ja_persona/dataset_profiles.py); the two paths below repeat what
+# the profiles and scripts/generate_qa_sample.py define
+# (tests/test_justfile_profiles.py keeps them in step).
+profile := "japan"
+qa_sample := if profile == "japan" { "qa_samples/qa_sample.parquet" } else { "qa_samples/qa_sample." + profile + ".parquet" }
+source_glob := if profile == "finance" { "datasets/Nemotron-Personas-Finance-Japan/data/train-*.parquet" } else if profile == "pii" { "datasets/Nemotron-PII-Japan/data.parquet" } else { "datasets/Nemotron-Personas-Japan/data/train-*.parquet" }
+
 help:
     @just --list --unsorted
 
@@ -37,14 +46,15 @@ integration:
     UV_CACHE_DIR=.uv-cache uv run --frozen pytest tests/test_integration_emulators.py -m integration
 
 qa-clear:
-    uv run --frozen python -m search_ja_persona.cli clear-emulators
+    uv run --frozen python -m search_ja_persona.cli clear-emulators --dataset-profile "{{profile}}"
 
 qa-sample limit="1000":
-    uv run --frozen python -m scripts.generate_qa_sample --limit "{{limit}}"
+    uv run --frozen python -m scripts.generate_qa_sample --limit "{{limit}}" --profile {{profile}}
 
 qa-index embedder="mini-lm" persona_fields="all":
     uv run --frozen python -m search_ja_persona.cli index \
-        --dataset qa_samples/qa_sample.parquet \
+        --dataset-profile "{{profile}}" \
+        --dataset {{qa_sample}} \
         --batch-size 64 \
         --limit 1000 \
         --embedder "{{embedder}}" \
@@ -52,6 +62,7 @@ qa-index embedder="mini-lm" persona_fields="all":
 
 qa-search query="高齢者介護の経験豊富なマネージャー" limit="3" format="table" embedder="mini-lm" persona_fields="all":
     uv run --frozen python -m search_ja_persona.cli search \
+        --dataset-profile "{{profile}}" \
         --query "{{query}}" \
         --limit "{{limit}}" \
         --format "{{format}}" \
@@ -65,17 +76,27 @@ qa: qa-index qa-search
 # recall@k against the live index (report lands in outputs/). Extra flags
 # pass through, e.g. `just eval --check-thresholds --rrf-weights 2,1`
 eval *flags:
-    uv run --frozen python -m scripts.evaluate_search {{flags}}
+    uv run --frozen python -m scripts.evaluate_search {{flags}} --dataset-profile "{{profile}}"
 
 # Name-lookup benchmark: exact full-name queries on a fixed 40-name set
 # (the keyword leg owes this since embeddings exclude names)
 eval-names:
-    uv run --frozen python -m scripts.evaluate_name_lookup
+    uv run --frozen python -m scripts.evaluate_name_lookup --dataset-profile "{{profile}}"
+
+# Rebuild the seed-fixed 40-entry lookup fixture for finance (corpus-unique
+# names, 5 per shard) or pii (single-document PII values, 5 per domain)
+lookup-fixture:
+    uv run --frozen python -m scripts.build_lookup_fixture --dataset-profile "{{profile}}"
+
+# Read-only fingerprint of one dataset's stores (counts, write stats, sample
+# digests); compare two runs to prove work on another dataset left it alone
+store-fingerprint:
+    uv run --frozen python -m scripts.store_fingerprint --dataset-profile "{{profile}}"
 
 # Golden-set diagnostic: score each predicate against fused / keyword-only /
 # random rankings to verify the eval measures retrieval, not the predicate
 diagnose:
-    uv run --frozen python -m scripts.diagnose_golden
+    uv run --frozen python -m scripts.diagnose_golden --dataset-profile "{{profile}}"
 
 # One-off migration: create the prefecture keyword payload index on an
 # existing Qdrant collection (idempotent; new collections get it at index time)
@@ -90,9 +111,10 @@ ensure-payload-index qdrant_host="127.0.0.1" qdrant_port="6333" qdrant_collectio
 # failed shard only (or rerun the whole recipe; completed shards just
 # overwrite themselves).
 full-index embedder="ruri-v3-310m" batch_size="512":
-    for shard in datasets/Nemotron-Personas-Japan/data/train-*.parquet; do \
+    for shard in {{source_glob}}; do \
         echo "=== indexing ${shard}"; \
         uv run --frozen python -m search_ja_persona.cli index \
+            --dataset-profile "{{profile}}" \
             --dataset "${shard}" \
             --batch-size "{{batch_size}}" \
             --embedder "{{embedder}}" \
@@ -111,6 +133,12 @@ panel:
 # Persona panel as a read-mode app (no code shown, forms only)
 panel-app:
     uv run --frozen --with "marimo[sql]" marimo run marimo/persona_panel.py
+
+# Record fused-search results from the profile's full index into
+# marimo/catalog_snapshot[.<profile>].json (refuses unless all three store
+# counts agree)
+catalog-snapshot:
+    uv run --frozen python -m scripts.catalog_snapshot --dataset-profile "{{profile}}"
 
 # Headless-run the catalog notebook and export static HTML (validation/preview)
 notebook-export:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from .dataset_profiles import JAPAN, DatasetProfile
 from .embeddings import Embedder
 from .persona_fields import PERSONA_TEXT_FIELDS
 from .services import ElasticsearchService, Neo4jService, QdrantService
@@ -43,6 +45,7 @@ class PersonaSearchService:
     neo4j: Neo4jService
     persona_fields: tuple[str, ...] = PERSONA_TEXT_FIELDS
     rrf_weights: tuple[float, float] = DEFAULT_RRF_WEIGHTS
+    profile: DatasetProfile = JAPAN
 
     def search(
         self,
@@ -50,7 +53,7 @@ class PersonaSearchService:
         *,
         limit: int = 5,
         return_stats: bool = False,
-        prefecture: str | None = None,
+        filters: Mapping[str, str] | None = None,
     ) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
         """Fuse both retrieval legs with weighted RRF.
 
@@ -72,11 +75,9 @@ class PersonaSearchService:
 
         depth = _fetch_depth(limit)
         query_vector = self.embedder.embed_query(query)
-        vector_hits = self.qdrant.search(
-            query_vector, limit=depth, prefecture=prefecture
-        )
+        vector_hits = self.qdrant.search(query_vector, limit=depth, filters=filters)
         keyword_response = self.elasticsearch.search(
-            query, limit=depth, prefecture=prefecture
+            query, limit=depth, filters=filters
         )
         keyword_hits = keyword_response.get("hits", {}).get("hits", [])
 
@@ -155,19 +156,18 @@ class PersonaSearchService:
 
             context = self.neo4j.fetch_persona_context(uuid)
             stats["context_calls"] += 1
-            results.append(
-                {
-                    "uuid": doc.get("uuid", uuid),
-                    "score": score,
-                    "rrf_score": -sort_key[0],
-                    "sources": sources,
-                    "text": doc.get("text"),
-                    "prefecture": doc.get("prefecture"),
-                    "region": doc.get("region"),
-                    "context": context,
-                    "persona_fields": persona_fields,
-                }
-            )
+            result: dict[str, Any] = {
+                "uuid": doc.get("uuid", uuid),
+                "score": score,
+                "rrf_score": -sort_key[0],
+                "sources": sources,
+                "text": doc.get("text"),
+            }
+            for field in self.profile.payload_fields:
+                result[field] = doc.get(field)
+            result["context"] = context
+            result["persona_fields"] = persona_fields
+            results.append(result)
 
         stats["results"] = len(results)
 

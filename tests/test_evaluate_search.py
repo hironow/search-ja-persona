@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from scripts.evaluate_search import run_golden
 
 
@@ -10,8 +12,9 @@ class FakeApp:
         self.calls: list[tuple[str, str | None]] = []
 
     def search(
-        self, query: str, *, limit: int, prefecture: str | None = None
+        self, query: str, *, limit: int, filters: dict[str, str] | None = None
     ) -> list[dict[str, Any]]:
+        prefecture = (filters or {}).get("prefecture")
         self.calls.append((query, prefecture))
         if prefecture is not None:
             return [{"text": "", "prefecture": prefecture, "region": ""}]
@@ -61,7 +64,7 @@ def test_run_golden_without_filters_returns_empty_filtered_list() -> None:
 def test_run_golden_rows_carry_canary_fields() -> None:
     class CanaryApp:
         def search(
-            self, query: str, *, limit: int, prefecture: str | None = None
+            self, query: str, *, limit: int, filters: dict[str, str] | None = None
         ) -> list[dict]:
             return [
                 {
@@ -90,3 +93,29 @@ def test_run_golden_rows_carry_canary_fields() -> None:
     assert row["results_returned"] == 2
     assert row["results_with_context"] == 1
     assert row["keyword_sourced"] is True
+
+
+def test_run_golden_reruns_entries_filtered_on_any_payload_field(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class DomainApp:
+        def search(
+            self, query: str, *, limit: int, filters: dict[str, str] | None = None
+        ) -> list[dict]:
+            domain = (filters or {}).get("domain", "医療")
+            return [{"text": "口座番号", "domain": domain, "document_type": "x"}]
+
+    golden = [
+        {
+            "query": "口座番号の書類",
+            "tier": "hard",
+            "expect": {"domain": "金融", "text_any": ["口座番号"]},
+            "filters": {"domain": "金融"},
+        }
+    ]
+
+    per_query, filtered = run_golden(DomainApp(), golden, k=1)
+
+    assert per_query[0]["precision_at_k"] == 0.0
+    assert filtered[0]["filtered_precision_at_k"] == 1.0
+    assert "filtered domain=金融" in capsys.readouterr().out

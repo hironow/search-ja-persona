@@ -69,7 +69,10 @@ markers = [
 ]
 
 [tool.ruff]
+# datasets/ holds upstream Hugging Face submodules: ruff formats Python code
+# blocks inside their README.md and would dirty the submodule checkouts.
 exclude = [
+    "datasets/",
     "emulator/",
     "marimo/",
 ]

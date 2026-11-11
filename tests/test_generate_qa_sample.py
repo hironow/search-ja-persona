@@ -6,8 +6,8 @@ from typing import Any
 import pytest
 
 import scripts.generate_qa_sample as generator
+from search_ja_persona.dataset_profiles import JAPAN
 from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
-from search_ja_persona.repository import PersonaRepository
 
 
 def test_generate_qa_sample_accepts_limit_argument(
@@ -30,7 +30,7 @@ def test_generate_qa_sample_accepts_limit_argument(
     records = []
     for index in range(3):
         row: dict[str, Any] = {}
-        for column in PersonaRepository.columns:
+        for column in JAPAN.columns:
             row[column] = f"{column}-{index}"
         for field in PERSONA_TEXT_FIELDS:
             row[field] = f"{field}-{index}"

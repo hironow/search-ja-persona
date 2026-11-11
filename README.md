@@ -42,6 +42,7 @@ Results are ordered by `rrf_score` (the fusion score); `sources` lists which leg
 | `search_ja_persona/datasets.py` | HuggingFace dataset download helpers |
 | `search_ja_persona/manifest.py` | Parquet file manifest utilities |
 | `search_ja_persona/persona_fields.py` | Persona text field definitions (6 fields) |
+| `search_ja_persona/dataset_profiles.py` | Per-dataset settings and each dataset's own stores (collection, index, Neo4j label, metadata file) |
 | `qa_samples/qa_sample.parquet` | 1k-row sample used by quick QA flows |
 | `scripts/generate_qa_sample.py` | Regenerate the QA sample parquet from Hugging Face |
 | `scripts/golden_queries.json` | Tiered golden queries (basic/hard, machine-checkable predicates) |
@@ -49,8 +50,8 @@ Results are ordered by `rrf_score` (the fusion score); `sources` lists which leg
 | `scripts/diagnose_golden.py` | Predicate discriminative-power diagnostic (`just diagnose`) |
 | `scripts/name_lookup_queries.json` + `evaluate_name_lookup.py` | Fixed-name lookup benchmark (`just eval-names`) |
 | `scripts/ensure_payload_index.py` | One-off Qdrant payload-index migration (`just ensure-payload-index`) |
-| `marimo/catalog.py` + `catalog_snapshot.json` | Feature-catalog notebook with a committed live-result snapshot |
-| `marimo/persona_panel.py` + `panel_example.jsonl` | Persona-panel survey app (Ollama) with a bundled M=30 sample |
+| `marimo/catalog.py` + `catalog_snapshot*.json` | Feature-catalog notebook (dataset selector) with a committed live-result snapshot per dataset |
+| `marimo/persona_panel.py` + `panel_example.jsonl` | Persona-panel survey app (Ollama; japan or finance personas) with a bundled M=30 sample |
 | `emulator/compose.yaml` | Standalone Qdrant/Elasticsearch/Neo4j stack (vendored minimal subset) |
 | `docs/architecture.md` | System architecture documentation |
 | `docs/storage-footprint.md` | Disk capacity requirements and space-reclaim guide |
@@ -85,6 +86,38 @@ The full corpus ships as a Git LFS submodule; the 1k QA sample is generated loca
 
 3. **QA sample.** `qa_samples/qa_sample.parquet` (1k rows) is **not checked in** (it is git-ignored). Generate it for quick QA flows with `just qa-sample` once the dataset from step 1 or 2 is available — see [Generating the QA Sample](#generating-the-qa-sample).
 
+### Related datasets
+
+More NVIDIA Japanese datasets (CC BY 4.0) ship as Git LFS submodules next to the main corpus.
+
+| Submodule | Contents | Working tree |
+|-----------|----------|--------------|
+| `datasets/Nemotron-Personas-Finance-Japan` | 1,000,000 records × 50 fields in 8 parquet shards: the main corpus's persona fields plus household finance attributes (income, financial assets, financial literacy, …) and 9 persona texts per record | ~1.4 GB |
+| `datasets/Nemotron-PII-Japan` | 100,000 synthetic documents (8 domains such as medical, finance, and government) with PII span annotations, in one `data.parquet`; not personas | ~76 MB |
+
+Each indexed dataset has a **dataset profile** (`--dataset-profile`, default `japan`) that owns its stores, so indexing, searching, or clearing one dataset never touches another:
+
+| Profile | Source | Qdrant collection / ES index | Neo4j label | Metadata file |
+|---------|--------|------------------------------|-------------|---------------|
+| `japan` | `datasets/Nemotron-Personas-Japan/data` | `personas` | `Persona` | `.cache/index_metadata.json` |
+| `finance` | `datasets/Nemotron-Personas-Finance-Japan/data` | `finance_personas` | `FinancePersona` | `.cache/index_metadata.finance.json` |
+| `pii` | `datasets/Nemotron-PII-Japan` (`data.parquet`) | `pii_documents` | `PiiDocument` | `.cache/index_metadata.pii.json` |
+
+A profile refuses `--qdrant-collection` / `--es-index` names that belong to another profile. A custom collection name gets its own metadata file (`.cache/index_metadata.<profile>.<collection>.json`), so clearing it keeps the default index's metadata. `Prefecture` and `Region` graph nodes are shared reference data: clearing a dataset deletes only its own nodes.
+
+Fetch each one by path, the same way as the main corpus:
+
+```bash
+git submodule update --init datasets/Nemotron-Personas-Finance-Japan
+git -C datasets/Nemotron-Personas-Finance-Japan lfs pull
+git submodule update --init datasets/Nemotron-PII-Japan
+git -C datasets/Nemotron-PII-Japan lfs pull
+```
+
+Always pass a path: a bare `git submodule update --init` checks out every dataset submodule, and the git-lfs smudge filter then downloads all of their shards.
+
+Before reading a parquet file, the repository detects its dataset from the source columns (`uid` + `spans` → `pii`, `finance_persona` → `finance`, otherwise `uuid` → `japan`) and refuses a file that does not match the selected profile. Finance shards share file names with the main corpus, so `--dataset-profile finance` is required to index them. pii search filters with `--domain` / `--document-type` instead of `--prefecture`. See `docs/architecture.md` (Dataset Profiles) for each profile's fields and graph.
+
 ## Generating the QA Sample
 
 The QA flows read `qa_samples/qa_sample.parquet`, which is **git-ignored and not
@@ -103,6 +136,8 @@ whenever you need a fresh slice or after updating the source dataset:
 
 Override the default count with `--limit` when needed (for example, `--limit 2000`).
 
+For the other datasets, `just profile=finance qa-sample` and `just profile=pii qa-sample` copy the first rows of the dataset's first submodule file (all source columns) into `qa_samples/qa_sample.finance.parquet` / `qa_samples/qa_sample.pii.parquet`. The justfile's `profile` variable (default `japan`) selects the dataset for every `qa-*` recipe and `full-index`.
+
 ## Indexing Personas
 
 ### Full corpus (about 1,000,000 rows)
@@ -111,9 +146,11 @@ Ingest every shard in `datasets/Nemotron-Personas-Japan/data/` (requires the dat
 
 ```bash
 just full-index
+just profile=finance full-index   # 8 shards -> finance_personas / FinancePersona
+just profile=pii full-index       # data.parquet -> pii_documents / PiiDocument
 ```
 
-This indexes the eight parquet shards one at a time (each shard is a
+This indexes the parquet shards one at a time (each shard is a
 checkpoint: uuid-keyed upserts make reruns idempotent, so a failed run
 resumes by rerunning from the failed shard). Equivalent single-shard
 command:
@@ -139,7 +176,7 @@ uv run python -m search_ja_persona.cli index \
     --persona-fields all
 ```
 
-> Tip: `just qa-index embedder="mini-lm" persona_fields="all"` runs a similar command with `--batch-size 64`.
+> Tip: `just qa-index mini-lm all` runs a similar command with `--batch-size 64` (recipe arguments are positional; only the top-level `profile` variable takes `name=value`, as in `just profile=finance qa-index ruri-v3-310m`).
 
 ### Metadata Tracking
 
@@ -217,21 +254,26 @@ The project uses [just](https://just.systems) for task automation:
 | `just help` | List all available tasks |
 | `just format` | Format code with ruff |
 | `just lint` | Lint and auto-fix with ruff |
-| `just test` | Run pytest (excludes integration tests) |
+| `just test` | Run pytest (integration tests skip themselves unless the emulators are up) |
 | `just integration` | Run integration tests (requires emulators) |
 | `just qa-clear` | Clear emulator data |
-| `just qa-sample limit=1000` | Generate QA sample parquet |
-| `just qa-index embedder="mini-lm"` | Index QA sample |
-| `just qa-search query="..."` | Search QA sample |
+| `just qa-sample 1000` | Generate QA sample parquet (`just profile=<finance\|pii> qa-sample` for the other datasets) |
+| `just qa-index mini-lm` | Index QA sample |
+| `just qa-search "..."` | Search QA sample |
 | `just qa` | Run qa-index + qa-search |
 | `just full-index` | Index the full corpus shard by shard (ruri-v3-310m) |
 | `just check` | Aggregate local gate (prek hooks + unit tests) |
 | `just eval` | Search-quality benchmark; add `--check-thresholds` to enforce the quality bars |
 | `just diagnose` | Golden-predicate diagnostic (fused / vector / keyword / random) |
-| `just eval-names` | Name-lookup benchmark on the fixed 40-name fixture |
+| `just eval-names` | Exact-lookup benchmark on the dataset's fixed 40-entry fixture |
+| `just lookup-fixture` | Rebuild the finance / pii lookup fixture (seed-fixed) |
+| `just store-fingerprint` | Read-only fingerprint of the dataset's stores, to compare before and after other work |
+| `just catalog-snapshot` | Record the catalog snapshot from the dataset's full index |
+
+Every `qa-*`, `full-index`, `eval`, `diagnose`, `eval-names`, `lookup-fixture`, `store-fingerprint`, and `catalog-snapshot` recipe works on the dataset in the top-level `profile` variable (default `japan`): `just profile=finance eval --check-thresholds`.
 | `just ensure-payload-index` | Backfill the Qdrant prefecture payload index (idempotent) |
-| `just notebook` / `just notebook-export` | Feature-catalog marimo notebook (edit / static HTML) |
-| `just panel` / `just panel-app` | Persona-panel notebook (edit / read-mode app): top-M personas answer a text/image input via local Ollama, JSONL output |
+| `just notebook` / `just notebook-export` | Feature-catalog marimo notebook (edit / static HTML); pick japan, finance, or pii in its dataset selector |
+| `just panel` / `just panel-app` | Persona-panel notebook (edit / read-mode app): top-M personas from japan or finance answer a text/image input via local Ollama, JSONL output (with a `dataset` field) |
 
 ## Troubleshooting Checklist
 

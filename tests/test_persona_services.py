@@ -546,7 +546,7 @@ def test_qdrant_search_applies_prefecture_filter() -> None:
         vector_size=2,
     )
 
-    service.search([0.1, 0.2], limit=3, prefecture="北海道")
+    service.search([0.1, 0.2], limit=3, filters={"prefecture": "北海道"})
 
     body = transport.requests[0].body
     assert body["filter"] == {
@@ -627,7 +627,9 @@ def test_elasticsearch_search_applies_prefecture_filter() -> None:
     transport = FakeTransport()
     transport.enqueue_response({"hits": {"hits": []}})
 
-    _elastic(transport).search("スキーが好き", limit=3, prefecture="北海道")
+    _elastic(transport).search(
+        "スキーが好き", limit=3, filters={"prefecture": "北海道"}
+    )
 
     body = transport.requests[0].body
     assert body["query"]["bool"]["filter"] == [{"term": {"prefecture": "北海道"}}]
@@ -661,10 +663,10 @@ def test_search_service_passes_prefecture_to_both_legs() -> None:
         neo4j=neo4j,
     )
 
-    service.search("スキーが好き", limit=3, prefecture="北海道")
+    service.search("スキーが好き", limit=3, filters={"prefecture": "北海道"})
 
-    assert qdrant.search.call_args.kwargs["prefecture"] == "北海道"
-    assert elasticsearch.search.call_args.kwargs["prefecture"] == "北海道"
+    assert qdrant.search.call_args.kwargs["filters"] == {"prefecture": "北海道"}
+    assert elasticsearch.search.call_args.kwargs["filters"] == {"prefecture": "北海道"}
 
 
 def _fusion_service(

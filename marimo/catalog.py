@@ -17,9 +17,10 @@ def _(mo):
         """
         # 🗾 search-ja-persona — Feature Catalog
 
-        A runnable tour of everything this system does. Execute top to bottom:
+        A runnable tour of everything this system does. Pick a dataset
+        below (each has its own stores), then read top to bottom:
 
-        1. **Data model** — the persona schema and text fields.
+        1. **Data model** — the dataset's schema and text fields.
         2. **Corpus exploration** — DuckDB SQL over the generated QA parquet.
         3. **Embedders** — the pluggable vectorization backends and their
            retrieval prefixes.
@@ -31,6 +32,28 @@ def _(mo):
            the indexed corpus (button-triggered; loads the embedding model).
         """
     )
+
+
+@app.cell
+def _(PROFILES, mo):
+    dataset_choice = mo.ui.dropdown(
+        options={
+            "Nemotron-Personas-Japan (japan)": "japan",
+            "Nemotron-Personas-Finance-Japan (finance)": "finance",
+            "Nemotron-PII-Japan (pii)": "pii",
+        },
+        value="Nemotron-Personas-Japan (japan)",
+        label="Dataset",
+    )
+    assert set(dataset_choice.options.values()) == set(PROFILES)
+    dataset_choice
+    return (dataset_choice,)
+
+
+@app.cell
+def _(dataset_choice, get_profile):
+    profile = get_profile(dataset_choice.value)
+    return (profile,)
 
 
 @app.cell
@@ -55,9 +78,11 @@ def _():
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
 
+    from scripts.evaluate_search import collect_store_counts
+    from scripts.generate_qa_sample import qa_sample_path
     from search_ja_persona.application import ApplicationConfig, PersonaApplication
+    from search_ja_persona.dataset_profiles import PROFILES, get_profile
     from search_ja_persona.embeddings import EMBEDDER_PRESETS, HashedNgramEmbedder
-    from search_ja_persona.persona_fields import PERSONA_TEXT_FIELDS
     from search_ja_persona.repository import PersonaRepository
     from search_ja_persona.services import RequestDescriptor, SimpleHttpTransport
 
@@ -68,65 +93,75 @@ def _():
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
             return _ex.submit(fn, *args, **kwargs).result()
 
-    QA_PARQUET = ROOT / "qa_samples" / "qa_sample.parquet"
-    SNAPSHOT_PATH = ROOT / "marimo" / "catalog_snapshot.json"
-    INDEX_METADATA_PATH = ROOT / ".cache" / "index_metadata.json"
+    CACHE_DIR = ROOT / ".cache"
     app_cache: dict = {}
     return (
         ApplicationConfig,
+        CACHE_DIR,
         EMBEDDER_PRESETS,
         HashedNgramEmbedder,
-        INDEX_METADATA_PATH,
-        PERSONA_TEXT_FIELDS,
+        PROFILES,
         PersonaApplication,
         PersonaRepository,
-        QA_PARQUET,
+        ROOT,
         RequestDescriptor,
-        SNAPSHOT_PATH,
         SimpleHttpTransport,
         app_cache,
+        collect_store_counts,
+        get_profile,
         json,
+        qa_sample_path,
         run_io,
         time,
     )
 
 
 @app.cell
-def _(PERSONA_TEXT_FIELDS, QA_PARQUET, mo):
+def _(CACHE_DIR, ROOT, profile, qa_sample_path):
+    QA_PARQUET = ROOT / qa_sample_path(profile.name)
+    _suffix = "" if profile.name == "japan" else f".{profile.name}"
+    SNAPSHOT_PATH = ROOT / "marimo" / f"catalog_snapshot{_suffix}.json"
+    INDEX_METADATA_PATH = CACHE_DIR / profile.metadata_filename
+    return INDEX_METADATA_PATH, QA_PARQUET, SNAPSHOT_PATH
+
+
+@app.cell
+def _(QA_PARQUET, mo, profile):
+    _metadata = [c for c in profile.columns if c not in profile.text_fields]
     mo.md(
         f"""
-        ## 1. Persona data model
+        ## 1. Data model — `{profile.name}`
 
-        Records stream from parquet via `PersonaRepository`. Each persona
-        carries metadata (`uuid`, `prefecture`, `region`, `occupation`, `age`,
-        `sex`) plus **{len(PERSONA_TEXT_FIELDS)} free-text fields** that get
-        aggregated and embedded:
+        Records stream from parquet via `PersonaRepository` (source
+        `{profile.source_dir}`). Each record carries metadata
+        ({", ".join(f"`{c}`" for c in _metadata)}) plus
+        **{len(profile.text_fields)} free-text fields** that get aggregated
+        and embedded (`{profile.embedding_text_policy}`):
 
-        {"".join(f"- `{f}`\n" for f in PERSONA_TEXT_FIELDS)}
+        {"".join(f"- `{f}`\n" for f in profile.text_fields)}
+
+        Stores: Qdrant `{profile.qdrant_collection}`, Elasticsearch
+        `{profile.es_index}`, Neo4j `:{profile.node_label}`. Filters:
+        {", ".join(f"`{f}`" for f in profile.filter_fields)}.
 
         QA sample: `{QA_PARQUET.name}` (1k rows, generated locally with
-        `just qa-sample`; the full corpus is 1,000,000 rows across eight
-        parquet shards).
+        `just profile={profile.name} qa-sample`).
         """
     )
 
 
 @app.cell
-def _(PersonaRepository, QA_PARQUET, mo):
+def _(PersonaRepository, QA_PARQUET, mo, profile):
     if QA_PARQUET.exists():
-        _repo = PersonaRepository([QA_PARQUET])
-        _personas = list(_repo.iter_personas(limit=200))
+        _repo = PersonaRepository([QA_PARQUET], profile=profile)
+        _records = list(_repo.iter_personas(limit=200))
         _preview = [
             {
-                "uuid": str(p.get("uuid", ""))[:8],
-                "prefecture": p.get("prefecture"),
-                "region": p.get("region"),
-                "occupation": p.get("occupation"),
-                "age": p.get("age"),
-                "sex": p.get("sex"),
-                "persona": (p.get("persona") or "")[:120],
+                "uuid": str(r.get("uuid", ""))[:8],
+                **{f: r.get(f) for f in profile.payload_fields},
+                profile.summary_field: (r.get(profile.summary_field) or "")[:120],
             }
-            for p in _personas
+            for r in _records
         ]
         sample_view = mo.ui.table(
             _preview,
@@ -134,14 +169,15 @@ def _(PersonaRepository, QA_PARQUET, mo):
             pagination=True,
             page_size=8,
             selection=None,
-            column_widths={"uuid": 90, "persona": 420},
-            label=f"First {len(_personas)} personas from the QA sample",
+            column_widths={"uuid": 90, profile.summary_field: 420},
+            label=f"First {len(_records)} records from the QA sample",
         )
     else:
         sample_view = mo.callout(
             mo.md(
-                "QA sample not found — generate it with `just qa-sample` "
-                "(needs the dataset submodule or HF cache)."
+                f"QA sample not found — generate it with "
+                f"`just profile={profile.name} qa-sample` (needs the dataset "
+                "submodule, or the HF cache for japan)."
             ),
             kind="warn",
         )
@@ -149,28 +185,30 @@ def _(PersonaRepository, QA_PARQUET, mo):
 
 
 @app.cell
-def _(QA_PARQUET, mo):
+def _(QA_PARQUET, mo, profile):
     mo.stop(
         not QA_PARQUET.exists(),
         mo.md("_Corpus SQL skipped — QA sample not generated._"),
     )
+    # Payload fields are source columns in every dataset's parquet.
+    _first, _second = profile.payload_fields
     mo.md(
-        """
+        f"""
         ## 2. Corpus exploration (DuckDB SQL)
 
         marimo SQL cells run DuckDB directly over the parquet — no ingestion,
-        no server. Here is the prefecture distribution of the sample.
+        no server. Here is the `{_first}` distribution of the sample.
         """
     )
-    prefecture_distribution = mo.sql(
+    payload_distribution = mo.sql(
         f"""
-        SELECT prefecture,
-               region,
-               count(*) AS personas
+        SELECT {_first},
+               {_second},
+               count(*) AS records
         FROM read_parquet('{QA_PARQUET.as_posix()}')
-        WHERE prefecture IS NOT NULL
-        GROUP BY prefecture, region
-        ORDER BY personas DESC
+        WHERE {_first} IS NOT NULL
+        GROUP BY {_first}, {_second}
+        ORDER BY records DESC
         LIMIT 15
         """
     )
@@ -230,7 +268,7 @@ def _(EMBEDDER_PRESETS, HashedNgramEmbedder, embed_text, embedder_choice, mo):
             mo.md(
                 "Model-backed preset — weights load on first use. Try it via "
                 "the **Live search** section below, or from a shell with "
-                f'`just qa-index embedder="{embedder_choice.value}"`.'
+                f"`just qa-index {embedder_choice.value}`."
             ),
             kind="neutral",
         )
@@ -239,11 +277,15 @@ def _(EMBEDDER_PRESETS, HashedNgramEmbedder, embed_text, embedder_choice, mo):
 
 @app.cell
 def _(
+    ApplicationConfig,
     INDEX_METADATA_PATH,
+    PersonaApplication,
     RequestDescriptor,
     SimpleHttpTransport,
+    collect_store_counts,
     json,
     mo,
+    profile,
     run_io,
 ):
     def _probe(host, port, path, auth=None):
@@ -261,40 +303,17 @@ def _(
     )
 
     def _count_stores():
-        counts = {"qdrant": None, "elasticsearch": None, "neo4j": None}
+        # The hashed embedder loads no model; only the stores are read.
+        _app = PersonaApplication.build(
+            ApplicationConfig(dataset_profile=profile.name)
+        )
+        counts = run_io(collect_store_counts, _app) or {}
         try:
-            _q = SimpleHttpTransport("127.0.0.1", 6333, timeout=5.0)
             _res = run_io(
-                _q.request, RequestDescriptor("GET", "/collections/personas")
+                _app.qdrant.transport.request,
+                RequestDescriptor("GET", f"/collections/{_app.qdrant.collection}"),
             )["result"]
-            counts["qdrant"] = _res["points_count"]
             counts["dimension"] = _res["config"]["params"]["vectors"]["size"]
-        except Exception:
-            pass
-        try:
-            _e = SimpleHttpTransport("127.0.0.1", 9200, timeout=5.0)
-            counts["elasticsearch"] = run_io(
-                _e.request, RequestDescriptor("GET", "/personas/_count")
-            )["count"]
-        except Exception:
-            pass
-        try:
-            _n = SimpleHttpTransport(
-                "127.0.0.1", 7474, timeout=10.0, auth=("neo4j", "password")
-            )
-            _resp = run_io(
-                _n.request,
-                RequestDescriptor(
-                    "POST",
-                    "/db/neo4j/tx/commit",
-                    body={
-                        "statements": [
-                            {"statement": "MATCH (p:Persona) RETURN count(p)"}
-                        ]
-                    },
-                ),
-            )
-            counts["neo4j"] = _resp["results"][0]["data"][0]["row"][0]
         except Exception:
             pass
         return counts
@@ -337,14 +356,16 @@ def _(
             mo.hstack(
                 [
                     mo.stat(
-                        f"{store_counts.get('qdrant') or 0:,}", label="Qdrant points"
+                        f"{store_counts.get('qdrant') or 0:,}",
+                        label=f"Qdrant {profile.qdrant_collection}",
                     ),
                     mo.stat(
                         f"{store_counts.get('elasticsearch') or 0:,}",
-                        label="Elasticsearch docs",
+                        label=f"Elasticsearch {profile.es_index}",
                     ),
                     mo.stat(
-                        f"{store_counts.get('neo4j') or 0:,}", label="Neo4j personas"
+                        f"{store_counts.get('neo4j') or 0:,}",
+                        label=f"Neo4j :{profile.node_label}",
                     ),
                     mo.stat(store_counts.get("dimension", "—"), label="vector dims"),
                 ]
@@ -356,7 +377,8 @@ def _(
                     "All three stores agree — the index is consistent."
                     if _agree
                     else "Store counts disagree (or the index is empty) — "
-                    "rerun the failed shard(s) with `just full-index`."
+                    "rerun the failed shard(s) with "
+                    f"`just profile={profile.name} full-index`."
                 ),
                 kind="success" if _agree else "warn",
             )
@@ -376,7 +398,7 @@ def _(
         _rows.append(
             mo.accordion(
                 {
-                    "🗂️ Recorded index metadata (.cache/index_metadata.json)": mo.json(
+                    f"🗂️ Recorded index metadata (.cache/{INDEX_METADATA_PATH.name})": mo.json(
                         index_metadata
                     )
                 }
@@ -387,7 +409,7 @@ def _(
 
 
 @app.cell
-def _(SNAPSHOT_PATH, json, mo):
+def _(SNAPSHOT_PATH, json, mo, profile):
     if SNAPSHOT_PATH.exists():
         _snapshot = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
         _sections = {}
@@ -405,7 +427,7 @@ def _(SNAPSHOT_PATH, json, mo):
             [
                 mo.md(
                     f"""
-                    ## 5. Recorded full-corpus results
+                    ## 5. Recorded full-corpus results — `{profile.name}`
 
                     Real fused-search results captured against the complete
                     index and committed with the notebook, so they render even
@@ -414,7 +436,7 @@ def _(SNAPSHOT_PATH, json, mo):
                     - Captured: `{_snapshot.get("generated_at")}`
                     - Embedder: `{_snapshot.get("embedder")}`
                       ({_snapshot.get("dimension")} dims)
-                    - Corpus: {_snapshot.get("corpus_size", 0):,} personas
+                    - Corpus: {_snapshot.get("corpus_size", 0):,} records
                       (Qdrant/Elasticsearch/Neo4j counts all matched at capture)
                     """
                 ),
@@ -424,9 +446,9 @@ def _(SNAPSHOT_PATH, json, mo):
     else:
         snapshot_view = mo.callout(
             mo.md(
-                "No recorded snapshot (`marimo/catalog_snapshot.json`). "
-                "Generate one after indexing with the snapshot script — see "
-                "`docs/research/` for the measurement context."
+                f"No recorded snapshot (`marimo/{SNAPSHOT_PATH.name}`). "
+                "Generate one after a full index with "
+                f"`just profile={profile.name} catalog-snapshot`."
             ),
             kind="neutral",
         )
@@ -475,6 +497,7 @@ def _(
     live_query,
     live_run,
     mo,
+    profile,
     run_io,
     time,
 ):
@@ -489,11 +512,11 @@ def _(
     _preset = ((index_metadata or {}).get("embedder") or {}).get("preset") or "hashed"
     if _preset not in EMBEDDER_PRESETS:
         _preset = "hashed"
-    if _preset not in app_cache:
-        app_cache[_preset] = PersonaApplication.build(
-            ApplicationConfig(embedder=_preset)
+    if (profile.name, _preset) not in app_cache:
+        app_cache[(profile.name, _preset)] = PersonaApplication.build(
+            ApplicationConfig(embedder=_preset, dataset_profile=profile.name)
         )
-    _app = app_cache[_preset]
+    _app = app_cache[(profile.name, _preset)]
 
     _t0 = time.perf_counter()
     _results, _stats = run_io(
@@ -507,8 +530,7 @@ def _(
     _rows = [
         {
             "score": round(float(r.get("score", 0.0)), 4),
-            "prefecture": r.get("prefecture"),
-            "region": r.get("region"),
+            **{f: r.get(f) for f in profile.payload_fields},
             "text": (r.get("text") or "")[:160],
         }
         for r in _results
@@ -517,6 +539,7 @@ def _(
         [
             mo.hstack(
                 [
+                    mo.stat(profile.name, label="dataset"),
                     mo.stat(_preset, label="embedder"),
                     mo.stat(f"{_elapsed_ms:.0f}ms", label="latency"),
                     mo.stat(_stats["vector_hits"], label="vector hits"),
@@ -554,8 +577,9 @@ def _(mo):
             "🧩 Pipeline": mo.md(
                 """
                 `PersonaRepository` → `PersonaIndexer` (compose text → strip
-                person names for the embedding input → `embed_documents` in
-                one batched call → Qdrant / Elasticsearch / Neo4j) →
+                person names for the embedding input, persona datasets only →
+                `embed_documents` in one batched call → the dataset's own
+                Qdrant collection / Elasticsearch index / Neo4j label) →
                 `PersonaSearchService` (`embed_query` → both legs at fetch
                 depth → RRF fusion → graph context for the top hits).
                 See `docs/architecture.md`.
@@ -564,9 +588,12 @@ def _(mo):
             "🚀 Run it for real": mo.md(
                 """
                 - `cd emulator && docker compose up -d` — start the backends.
-                - `just qa` — index + search the 1k sample from the CLI.
+                - `just qa` — index + search the 1k sample from the CLI
+                  (`just profile=finance qa` / `just profile=pii qa` for the
+                  other datasets).
                 - `just full-index` — index the full 1M corpus shard by shard
-                  with `ruri-v3-310m` (~1h on a GPU machine).
+                  with `ruri-v3-310m` (~1h on a GPU machine);
+                  `just profile=<finance|pii> full-index` for the others.
                 """
             ),
         }

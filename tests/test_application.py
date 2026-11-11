@@ -34,7 +34,7 @@ def test_persona_application_orchestrates_services(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["repository_paths"] = list(paths)
 
         def iter_personas(
@@ -67,7 +67,7 @@ def test_persona_application_orchestrates_services(
             limit: int,
             *,
             return_stats: bool = False,
-            prefecture: str | None = None,
+            filters: dict[str, str] | None = None,
         ):
             recorded["search_call"] = {"query": query, "limit": limit}
             results = [{"uuid": "1"}]
@@ -117,7 +117,7 @@ def test_persona_application_uses_sentence_embedder(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["repository_paths"] = list(paths)
 
         def iter_personas(self, limit: int | None = None):  # pragma: no cover
@@ -181,7 +181,7 @@ def test_persona_application_uses_fast_embedder(
     recorded: dict[str, Any] = {}
 
     class FakeRepository:
-        def __init__(self, paths):
+        def __init__(self, paths, profile=None):
             recorded["repository_paths"] = list(paths)
 
         def iter_personas(self, limit: int | None = None):  # pragma: no cover
@@ -278,11 +278,13 @@ def test_application_search_passes_prefecture_filter() -> None:
     from unittest.mock import Mock
 
     from search_ja_persona.application import ApplicationConfig, PersonaApplication
+    from search_ja_persona.dataset_profiles import JAPAN
 
     search_service = Mock()
     search_service.search.return_value = []
     app = PersonaApplication(
         config=ApplicationConfig(),
+        profile=JAPAN,
         embedder=Mock(),
         qdrant=Mock(),
         elasticsearch=Mock(),
@@ -290,9 +292,9 @@ def test_application_search_passes_prefecture_filter() -> None:
         search_service=search_service,
     )
 
-    app.search("スキーが好き", limit=3, prefecture="北海道")
+    app.search("スキーが好き", limit=3, filters={"prefecture": "北海道"})
 
-    assert search_service.search.call_args.kwargs["prefecture"] == "北海道"
+    assert search_service.search.call_args.kwargs["filters"] == {"prefecture": "北海道"}
 
 
 def test_application_config_passes_rrf_weights() -> None:
