@@ -62,3 +62,6 @@ ADRs are immutable after acceptance. To change a decision, create a new ADR that
 ## Index
 
 - [0001](0001-vendor-emulator-compose.md) — Vendor a minimal emulator compose stack instead of a submodule
+- [0002](0002-rrf-fusion.md) — Fuse retrieval legs with weighted Reciprocal Rank Fusion
+- [0003](0003-strip-person-names-from-embeddings.md) — Strip person names from embedding inputs
+- [0004](0004-dataset-profiles-with-separate-stores.md) — Index each dataset into its own stores through a dataset profile
