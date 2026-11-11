@@ -142,8 +142,7 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   panel selection. `marimo/catalog_snapshot.json` was already
   regenerated in #49.
 
-- **finance + pii datasets (branch `build/add-finance-pii-datasets`,
-  not pushed)**: `nvidia/Nemotron-Personas-Finance-Japan` (c73cc86) and
+- **#101 finance + pii datasets**: `nvidia/Nemotron-Personas-Finance-Japan` (c73cc86) and
   `nvidia/Nemotron-PII-Japan` (a074898) are Git LFS submodules under
   `datasets/`, and both are **fully indexed in their own stores**:
   finance 1,000,000×3 (`finance_personas` / `FinancePersona`), pii
@@ -158,11 +157,10 @@ parquet and all three stores; fused search answers in ~45–76ms. Unit suite:
   `docs/research/2026-11-11-finance-pii-baseline.md`.
 
 ## In Progress
-Branch `build/add-finance-pii-datasets` (local only) waits for the
-owner's go-ahead to push and open a PR. The emulator volumes were backed
-up before the finance/pii indexing (tar of the three data volumes,
-~13.7 GB, in the Claude session scratchpad `volume-backup/`); japan was
-verified unchanged, so the backup can be deleted once the owner agrees.
+Nothing in flight. The finance / pii work landed as PR #101 (squash
+merge approved by the owner). The pre-indexing volume backup was deleted
+after japan was verified unchanged. The emulators are stopped; their
+volumes hold all three indexes (`cd emulator && docker compose up -d`).
 
 ## Next Actions
 1. ~~Bar ratification~~ — done 2026-08-27: hard ≥ 0.55 and filtered geo
@@ -225,8 +223,8 @@ verified unchanged, so the backup can be deleted once the owner agrees.
 - GPU sharing: a vLLM server (Qwen3.8-27B) in WSL Ubuntu holds most of
   the RTX 4090. Embedding speed swung between 35 and 130 docs/s, and the
   finance full index took 151 min (japan took ~50 min alone).
-- Disk: C: is at 93% (141 GB free) after the indexing and the volume
-  backup.
+- Disk: C: is at 91% (173 GB free) with all three indexes in the
+  emulator volumes (~27 GB).
 
 ## Context the Next Actor Needs
 - Emulators are vendored at `emulator/compose.yaml`; ports/auth match
