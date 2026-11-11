@@ -15,7 +15,6 @@ import pytest
 
 from search_ja_persona import cli
 from search_ja_persona.repository import PersonaRepository
-from search_ja_persona.services import RequestDescriptor, SimpleHttpTransport
 
 FINANCE_TEXT_FIELDS = [
     "finance_persona",
@@ -40,50 +39,6 @@ FINANCE_ROWS: list[dict[str, Any]] = [
         "sex": "男",
     }
 ]
-
-
-def _respond(method: str, path: str, body: Any) -> dict[str, Any]:
-    if path == "/db/neo4j/tx/commit":
-        statement = body["statements"][0]["statement"]
-        if "count(p)" in statement and "UNWIND" not in statement:
-            return {"results": [{"data": [{"row": [0]}]}], "errors": []}
-        return {"results": [], "errors": []}
-    if method == "GET" and path.startswith("/collections/"):
-        return {
-            "result": {
-                "points_count": 0,
-                "config": {"params": {"vectors": {"size": 8}}},
-                "payload_schema": {},
-            }
-        }
-    if path.endswith("/_count"):
-        return {"count": 0}
-    if path.endswith("/_bulk"):
-        return {"errors": False, "items": []}
-    if path.endswith("/points/search"):
-        return {"result": []}
-    if path.endswith("/_search"):
-        return {"hits": {"hits": []}}
-    return {}
-
-
-@pytest.fixture
-def wire(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    recorded: list[dict[str, Any]] = []
-
-    def record(self: SimpleHttpTransport, descriptor: RequestDescriptor) -> dict:
-        recorded.append(
-            {
-                "method": descriptor.method,
-                "path": descriptor.path,
-                "body": descriptor.body,
-            }
-        )
-        return _respond(descriptor.method, descriptor.path, descriptor.body)
-
-    monkeypatch.setattr(SimpleHttpTransport, "request", record)
-    monkeypatch.setattr(cli, "_confirm_reset", lambda: True)
-    return recorded
 
 
 def _finance_metadata_path() -> Path:
@@ -125,13 +80,13 @@ def _store_paths(requests: list[dict[str, Any]]) -> list[str]:
 
 
 def test_finance_index_touches_only_finance_stores(
-    wire: list[dict[str, Any]], tmp_path: Path
+    store_requests: list[dict[str, Any]], tmp_path: Path
 ) -> None:
     _index_finance(tmp_path)
 
-    for path in _store_paths(wire):
+    for path in _store_paths(store_requests):
         assert path.startswith(("/collections/finance_personas", "/finance_personas"))
-    statements = _cypher(wire)
+    statements = _cypher(store_requests)
     assert statements
     for statement in statements:
         # \bPersona\b matches the japan label (":Persona") but not
@@ -145,7 +100,7 @@ def test_finance_index_touches_only_finance_stores(
 
 
 def test_finance_index_records_its_own_metadata(
-    wire: list[dict[str, Any]], tmp_path: Path
+    store_requests: list[dict[str, Any]], tmp_path: Path
 ) -> None:
     _index_finance(tmp_path)
 
@@ -157,37 +112,41 @@ def test_finance_index_records_its_own_metadata(
 
 
 def test_finance_documents_carry_all_nine_text_fields(
-    wire: list[dict[str, Any]], tmp_path: Path
+    store_requests: list[dict[str, Any]], tmp_path: Path
 ) -> None:
     _index_finance(tmp_path)
 
-    bulk = next(r for r in wire if r["path"].endswith("/_bulk"))
+    bulk = next(r for r in store_requests if r["path"].endswith("/_bulk"))
     document = json.loads(bulk["body"].splitlines()[1])
     for field in FINANCE_TEXT_FIELDS:
         assert document[field] == FINANCE_ROWS[0][field]
     mapping = next(
-        r for r in wire if r["method"] == "PUT" and r["path"] == "/finance_personas"
+        r
+        for r in store_requests
+        if r["method"] == "PUT" and r["path"] == "/finance_personas"
     )
     properties = mapping["body"]["mappings"]["properties"]
     assert all(properties[field] == {"type": "text"} for field in FINANCE_TEXT_FIELDS)
 
 
 def test_clearing_finance_leaves_japan_stores_and_metadata(
-    wire: list[dict[str, Any]],
+    store_requests: list[dict[str, Any]],
 ) -> None:
     cli.METADATA_PATH.write_text('{"dataset": "japan"}', encoding="utf-8")
     _finance_metadata_path().write_text('{"dataset": "finance"}', encoding="utf-8")
 
     cli.main(["clear-emulators", "--dataset-profile", "finance"])
 
-    assert _store_paths(wire) == [
+    assert _store_paths(store_requests) == [
         "/collections/finance_personas",
         "/finance_personas",
     ]
     assert all(
-        r["method"] == "DELETE" for r in wire if r["path"] != "/db/neo4j/tx/commit"
+        r["method"] == "DELETE"
+        for r in store_requests
+        if r["path"] != "/db/neo4j/tx/commit"
     )
-    (statement,) = _cypher(wire)
+    (statement,) = _cypher(store_requests)
     assert statement.startswith("MATCH (p:FinancePersona)")
     assert cli.METADATA_PATH.exists()
     assert not _finance_metadata_path().exists()
@@ -228,29 +187,33 @@ def test_clearing_finance_leaves_japan_stores_and_metadata(
     ],
 )
 def test_a_profile_refuses_another_profiles_store_names(
-    wire: list[dict[str, Any]], argv: list[str], capsys: pytest.CaptureFixture[str]
+    store_requests: list[dict[str, Any]],
+    argv: list[str],
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as excinfo:
         cli.main([*argv, "--embedder", "hashed"] if argv[0] == "search" else argv)
 
     assert excinfo.value.code == 2
     assert "belongs to another dataset profile" in capsys.readouterr().out
-    assert wire == []
+    assert store_requests == []
 
 
 def test_refused_index_sends_nothing(
-    wire: list[dict[str, Any]], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    store_requests: list[dict[str, Any]],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as excinfo:
         _index_finance(tmp_path, "--qdrant-collection", "personas")
 
     assert excinfo.value.code == 2
     assert "belongs to another dataset profile" in capsys.readouterr().out
-    assert wire == []
+    assert store_requests == []
 
 
 def test_clearing_a_custom_collection_keeps_the_default_metadata(
-    wire: list[dict[str, Any]],
+    store_requests: list[dict[str, Any]],
 ) -> None:
     cli.METADATA_PATH.write_text('{"dataset": "japan"}', encoding="utf-8")
 
@@ -259,11 +222,11 @@ def test_clearing_a_custom_collection_keeps_the_default_metadata(
     )
 
     assert cli.METADATA_PATH.exists()
-    assert "/collections/scratch" in _store_paths(wire)
+    assert "/collections/scratch" in _store_paths(store_requests)
 
 
 def test_metadata_recorded_for_another_dataset_fails_closed(
-    wire: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
+    store_requests: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
 ) -> None:
     japan_metadata = {
         "dataset": "japan",
@@ -282,14 +245,14 @@ def test_metadata_recorded_for_another_dataset_fails_closed(
 
     assert excinfo.value.code == 2
     assert "describes dataset 'japan', not 'finance'" in capsys.readouterr().out
-    assert wire == []
+    assert store_requests == []
 
 
 def test_finance_search_reuses_finance_metadata(
-    wire: list[dict[str, Any]], tmp_path: Path
+    store_requests: list[dict[str, Any]], tmp_path: Path
 ) -> None:
     _index_finance(tmp_path)
-    wire.clear()
+    store_requests.clear()
 
     cli.main(
         [
@@ -305,7 +268,7 @@ def test_finance_search_reuses_finance_metadata(
         ]
     )
 
-    assert _store_paths(wire) == [
+    assert _store_paths(store_requests) == [
         "/collections/finance_personas/points/search",
         "/finance_personas/_search",
     ]
