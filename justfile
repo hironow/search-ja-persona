@@ -134,6 +134,12 @@ panel:
 panel-app:
     uv run --frozen --with "marimo[sql]" marimo run marimo/persona_panel.py
 
+# Record fused-search results from the profile's full index into
+# marimo/catalog_snapshot[.<profile>].json (refuses unless all three store
+# counts agree)
+catalog-snapshot:
+    uv run --frozen python -m scripts.catalog_snapshot --dataset-profile "{{profile}}"
+
 # Headless-run the catalog notebook and export static HTML (validation/preview)
 notebook-export:
     uv run --frozen --with "marimo[sql]" marimo export html marimo/catalog.py -o marimo/catalog.html
