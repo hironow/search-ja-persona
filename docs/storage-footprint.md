@@ -1,25 +1,27 @@
 # Storage Footprint
 
-This document describes the disk capacity required to run search-ja-persona,
-from the lightweight QA-sample path to a full 1M-persona corpus. Use it to
-decide whether a machine has enough headroom before indexing, and which parts
-of the on-disk state are safe to reclaim.
+Indexing all three datasets with `ruri-v3-310m` needs about 37 GB of new
+disk; the japan dataset alone about 21 GB; the QA-sample path about 5 GB.
+Use this document to check a machine's headroom before indexing and to see
+which on-disk state is safe to reclaim.
 
-Numbers labelled **measured** were captured on a development Mac; numbers
-labelled **approx** are public image/model sizes that vary by version and
-platform. Emulator data-volume figures are estimates derived from the corpus
-size and the chosen embedder dimension.
+Numbers labelled **measured** come from a development Mac (QA path, Python
+environment) or from the Windows 11 / RTX 4090 workstation on 2026-11-11
+(full indexes, images, datasets). Numbers labelled **approx** are public
+model sizes that vary by version and platform, or estimates.
 
 ## TL;DR Budgets
 
 | Scenario | Embedder | New disk needed | Notes |
 |----------|----------|-----------------|-------|
 | QA sample (1k rows) | `mini-lm` (384d) | **~5 GB** | Smallest end-to-end run; full corpus not required |
-| Full corpus (1M rows) | `mini-lm` (384d) | **~16–21 GB** | Source parquet (two copies) + emulator volumes dominate |
-| Full corpus (1M rows) | `e5-large` (1024d) | **~22–29 GB** | Larger vectors inflate Qdrant + model cache |
-| japan + finance + pii, full (2.1M records) | `ruri-v3-310m` (768d) | **~37 GB** measured | ~27 GB emulator volumes + ~6.3 GB source parquet (two copies) + images |
+| japan full (1M rows) | `mini-lm` (384d) | **~16–21 GB** | Source parquet (two copies) + emulator volumes dominate |
+| japan full (1M rows) | `e5-large` (1024d) | **~22–29 GB** | Larger vectors inflate Qdrant + model cache |
+| japan full (1M rows) | `ruri-v3-310m` (768d) | **~21 GB** measured | ~14 GB emulator volumes + ~3.3 GB source parquet (two copies) + ~3.8 GB images |
+| japan + finance + pii, full (2.1M records) | `ruri-v3-310m` (768d) | **~37 GB** measured | ~27 GB emulator volumes + ~6.2 GB source parquet (two copies) + ~3.8 GB images |
 
-"New disk needed" is on top of the Python virtualenv (~1 GB) and excludes the
+"New disk needed" is on top of the Python virtualenv (~1 GB on macOS, ~3.5 GB
+on Windows with CUDA torch) and excludes the
 redundant Hugging Face arrow cache, which can be deleted (see
 [Reclaiming Space](#reclaiming-space)).
 
@@ -32,7 +34,7 @@ redundant Hugging Face arrow cache, which can be deleted (see
  +-- source parquet (8 shards)   ~1.6
  +-- LFS object store (.git)     ~1.6
  +-- model cache (mini-lm)       ~0.1
- +-- docker images (3)           ~2.3
+ +-- docker images (3)           ~3.8
  +-- docker vm runtime           ~1-2
  +-- Qdrant volume               ~3-5
  +-- Elasticsearch volume        ~3-5
@@ -52,6 +54,9 @@ Legend:
 
 ### Python environment (measured)
 
+On Windows, `torch` comes from the CUDA index, and `.venv` measures about
+3.5 GB. The breakdown below is the CPU-only macOS environment:
+
 | Item | Size |
 |------|------|
 | `.venv` total | ~958 MB |
@@ -64,7 +69,6 @@ Legend:
 | — `sklearn` / `numpy` | 34 MB / 24 MB |
 | `.uv-cache` (prunable) | ~55 MB |
 
-The environment is CPU-only on macOS, so there is no CUDA bloat.
 
 ### Dataset (measured)
 
@@ -102,19 +106,20 @@ is fetched.
 | `e5-large` | SentenceTransformers | ~2.2 GB |
 | `fast-e5-small` | FastEmbed (ONNX) | ~470 MB |
 | `fast-e5-large` | FastEmbed (ONNX) | ~2.2 GB |
-| all presets combined | — | ~6 GB |
+| `ruri-v3-130m` / `ruri-v3-310m` | SentenceTransformers | ~0.5 / ~1.2 GB |
+| all presets combined | — | ~8 GB |
 
-### Emulator container images (approx)
+### Emulator container images (measured)
 
-The three backends run as containers (Qdrant, Elasticsearch, Neo4j). Images are
-pulled once and shared across runs.
+The three backends run as containers. Images are pulled once and shared
+across runs (`emulator/compose.yaml` pins the tags):
 
-| Image | Approx size |
-|-------|-------------|
-| `qdrant/qdrant` | 150–250 MB |
-| `elasticsearch` 8.x | 1.3–1.7 GB |
-| `neo4j` 5.x | 500–600 MB |
-| **subtotal** | **~2.0–2.5 GB** |
+| Image | Size |
+|-------|------|
+| `qdrant/qdrant:latest` | 281 MB |
+| `elasticsearch:9.4.3` | 2.47 GB |
+| `neo4j:2025-community` | 1.08 GB |
+| **subtotal** | **~3.8 GB** |
 
 Budget an additional ~1–2 GB for the Docker VM overlay and runtime scratch.
 
@@ -140,8 +145,10 @@ Measured on Windows 11 / Docker Desktop with `ruri-v3-310m` (768d),
 | `emulator_neo4j_data` | 2.54 GB | 2.67 GB | +0.13 GB |
 | **subtotal** | **~14.0 GB** | **~27.4 GB** | **+13.4 GB** |
 
-Qdrant and Neo4j report only per volume, so their increase covers finance
-and pii together.
+Per collection inside `emulator_qdrant_data`: `personas` 5.1 GB,
+`finance_personas` 5.2 GB, `pii_documents` 0.45 GB (`du` on
+`/qdrant/storage/collections`). Neo4j reports only per volume, so its
+increase covers finance and pii together.
 
 Switching to `e5-large` (1024d) roughly doubles the raw vector store
 (1M × 1024 × 4B ≈ 4 GB in Qdrant alone), pushing the Qdrant volume to ~7–9 GB.
@@ -168,8 +175,9 @@ This keeps the total end-to-end footprint (beyond the existing venv) to roughly
 | `git submodule deinit -f datasets/Nemotron-Personas-Finance-Japan`, then `rm -rf .git/modules/datasets/Nemotron-Personas-Finance-Japan/lfs/objects` | ~2.8 GB | The finance index is built and no reindex, eval self-retrieval, diagnose, or `lookup-fixture` run is planned (they read the shards) |
 | `git submodule deinit -f datasets/Nemotron-PII-Japan`, then `rm -rf .git/modules/datasets/Nemotron-PII-Japan/lfs/objects` | ~150 MB | The pii index is built and no reindex, diagnose, or `lookup-fixture` run is planned |
 | `uv cache prune` (or `rm -rf .uv-cache`) | ~55 MB | Anytime; repopulated on next `uv` run |
-| `just profile=<finance\|pii> qa-clear` | ~6.5 / ~0.3 GB | Drops only that dataset's collection, index, and nodes; japan stays |
-| `docker image prune` / drop emulator volumes | up to ~27 GB | Between runs; re-index to rebuild |
+| `just profile=finance qa-clear` | ~11.4 GB (Elasticsearch 6.2 + Qdrant 5.2) plus its Neo4j nodes | Drops only finance's collection, index, nodes, and metadata; japan and pii stay; rebuild with `just profile=finance full-index` |
+| `just profile=pii qa-clear` | ~0.7 GB (Elasticsearch 0.21 + Qdrant 0.45) plus its Neo4j nodes | Same, for pii |
+| `docker image prune` / drop emulator volumes | ~3.8 GB images, ~27 GB volumes | Between runs; re-index to rebuild |
 
 ## Verifying Available Space
 
@@ -180,6 +188,9 @@ volume:
 df -h /System/Volumes/Data      # true available space + capacity %
 du -sh .venv .cache .hf-cache datasets .git   # this repo's largest consumers
 ```
+
+On Windows (Git Bash), `df -h /c` shows the drive, and `docker system df -v`
+lists each emulator volume's size.
 
 A capacity at or above ~90% is the practical warning line on macOS even when
 the absolute free figure looks large, because the OS reserves headroom for
