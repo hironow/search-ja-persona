@@ -88,6 +88,11 @@ eval-names:
 lookup-fixture:
     uv run --frozen python -m scripts.build_lookup_fixture --dataset-profile "{{profile}}"
 
+# Read-only fingerprint of one dataset's stores (counts, write stats, sample
+# digests); compare two runs to prove work on another dataset left it alone
+store-fingerprint:
+    uv run --frozen python -m scripts.store_fingerprint --dataset-profile "{{profile}}"
+
 # Golden-set diagnostic: score each predicate against fused / keyword-only /
 # random rankings to verify the eval measures retrieval, not the predicate
 diagnose:

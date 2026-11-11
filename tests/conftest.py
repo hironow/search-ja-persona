@@ -48,7 +48,7 @@ def _respond(method: str, path: str, body: Any) -> dict[str, Any]:
         statement = body["statements"][0]["statement"]
         if "count(p)" in statement and "UNWIND" not in statement:
             return {"results": [{"data": [{"row": [0]}]}], "errors": []}
-        return {"results": [], "errors": []}
+        return {"results": [{"data": []}], "errors": []}
     if method == "GET" and path.startswith("/collections/"):
         return {
             "result": {
@@ -57,6 +57,11 @@ def _respond(method: str, path: str, body: Any) -> dict[str, Any]:
                 "payload_schema": {},
             }
         }
+    if path.endswith("/points/scroll"):
+        return {"result": {"points": []}}
+    if path.endswith("/_stats/indexing"):
+        indexing = {"index_total": 0, "delete_total": 0}
+        return {"_all": {"primaries": {"indexing": indexing}}}
     if path.endswith("/_count"):
         return {"count": 0}
     if path.endswith("/_bulk"):
